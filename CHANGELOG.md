@@ -10,6 +10,7 @@
 - Reused the same top-level dashboard header across both views so the title, subtitle, location, weather, and last-updated strip stay identical.
 - Added live Melbourne weather data in the dashboard header using the Open-Meteo API.
 - Added weather-condition-based icons so the header icon changes with the returned forecast code.
+- Added a repository-level `vercel.json` so Vercel can install, build, and serve the Vite app from `web/`.
 
 ### Changed
 
@@ -23,6 +24,7 @@
 - Stabilized the chart card subtree by hoisting shared UI helpers out of `App`, preventing weather-state re-renders from remounting and replaying the charts.
 - Tuned chart entrance timings to `3000ms` for the area chart, `1500ms` for the bar chart, and `2500ms` for the pie chart.
 - Removed the old Vite starter `App.css` stylesheet after confirming it was unused.
+- Documented the Vercel import and continuous deployment flow in `README.md`.
 
 ### Notes
 

@@ -19,9 +19,31 @@ npm run lint
 npm run build
 ```
 
+## Deploying To Vercel
+
+The repository includes a root-level [`vercel.json`](/Users/dannyholwell/Documents/Data Vault/integrity-dashboard/vercel.json) so Vercel can build the frontend even though the app lives in `web/`.
+
+To connect hosting and continuous deployment:
+
+1. Push this repository to GitHub, GitLab, or Bitbucket.
+2. Import the repository into Vercel.
+3. Leave the project rooted at the repository root so Vercel picks up `vercel.json`.
+4. Confirm the detected settings:
+   - Install command: `npm install --prefix web`
+   - Build command: `npm run build --prefix web`
+   - Output directory: `web/dist`
+5. Deploy.
+
+After the first import:
+
+- pushes to the production branch trigger production deployments
+- pull requests trigger preview deployments automatically
+- no environment variables are currently required for the frontend build
+
 ## Project Structure
 
 - `web/`: Vite + React frontend
+- `vercel.json`: Vercel build configuration for the `web/` app
 - `CHANGELOG.md`: chronological record of notable product and implementation changes
 - `docs/decisions/`: architectural decisions and tradeoffs
 
