@@ -18,6 +18,13 @@ import {
   Brain,
   Calendar,
   ChevronRight,
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
   Clock,
   Coffee,
   DollarSign,
@@ -29,8 +36,55 @@ import {
   Zap,
 } from 'lucide-react'
 
+const MELBOURNE_COORDS = {
+  latitude: -37.8136,
+  longitude: 144.9631,
+}
+
+const getWeatherDisplay = (code) => {
+  if (code === 0) {
+    return { label: 'Clear', icon: Sun, iconClassName: 'text-amber-400' }
+  }
+
+  if (code === 1 || code === 2) {
+    return { label: 'Partly cloudy', icon: CloudSun, iconClassName: 'text-amber-300' }
+  }
+
+  if (code === 3) {
+    return { label: 'Overcast', icon: Cloud, iconClassName: 'text-slate-300' }
+  }
+
+  if (code === 45 || code === 48) {
+    return { label: 'Fog', icon: CloudFog, iconClassName: 'text-slate-300' }
+  }
+
+  if (code >= 51 && code <= 57) {
+    return { label: 'Drizzle', icon: CloudDrizzle, iconClassName: 'text-cyan-300' }
+  }
+
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) {
+    return { label: 'Rain', icon: CloudRain, iconClassName: 'text-sky-300' }
+  }
+
+  if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) {
+    return { label: 'Snow', icon: CloudSnow, iconClassName: 'text-cyan-100' }
+  }
+
+  if (code >= 95 && code <= 99) {
+    return { label: 'Thunderstorm', icon: CloudLightning, iconClassName: 'text-violet-300' }
+  }
+
+  return { label: 'Weather', icon: Cloud, iconClassName: 'text-slate-300' }
+}
+
 const App = () => {
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [weather, setWeather] = useState({
+    code: null,
+    temperature: null,
+    updatedAt: null,
+    status: 'loading',
+  })
 
   const healthData = [
     { day: 'Mon', steps: 6200, calories: 2100, hr: 62, hrv: 55, mood: 6, spend: 45 },
@@ -68,6 +122,67 @@ const App = () => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadWeather = async () => {
+      try {
+        const response = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${MELBOURNE_COORDS.latitude}&longitude=${MELBOURNE_COORDS.longitude}&current=temperature_2m,weather_code&timezone=Australia%2FMelbourne`
+        )
+
+        if (!response.ok) {
+          throw new Error(`Weather request failed: ${response.status}`)
+        }
+
+        const data = await response.json()
+
+        if (isCancelled) {
+          return
+        }
+
+        setWeather({
+          code: data.current.weather_code,
+          temperature: Math.round(data.current.temperature_2m),
+          updatedAt: data.current.time,
+          status: 'ready',
+        })
+      } catch {
+        if (isCancelled) {
+          return
+        }
+
+        setWeather({
+          code: null,
+          temperature: null,
+          updatedAt: null,
+          status: 'error',
+        })
+      }
+    }
+
+    loadWeather()
+
+    const intervalId = setInterval(loadWeather, 10 * 60 * 1000)
+
+    return () => {
+      isCancelled = true
+      clearInterval(intervalId)
+    }
+  }, [])
+
+  const weatherDisplay = getWeatherDisplay(weather.code)
+  const WeatherIcon = weatherDisplay.icon
+  const weatherSummary =
+    weather.status === 'error'
+      ? 'Weather unavailable'
+      : weather.temperature === null
+        ? 'Loading weather...'
+        : `${weather.temperature}°C ${weatherDisplay.label}`
+  const updatedLabel = weather.updatedAt
+    ? new Date(weather.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
   const Card = ({ title, icon: Icon, children, className = '', subtitle = '' }) => (
     <div className={`rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm ${className}`}>
@@ -131,17 +246,15 @@ const App = () => {
         <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-800 bg-slate-900/80 p-3 text-sm">
           <div className="flex items-center gap-2 border-r border-slate-800 px-3">
             <MapPin size={16} className="text-rose-400" />
-            <span>Moonee Ponds, VIC</span>
+            <span>Melbourne, VIC</span>
           </div>
           <div className="flex items-center gap-2 border-r border-slate-800 px-3">
-            <Sun size={16} className="text-amber-400" />
-            <span>24°C Sunny</span>
+            <WeatherIcon size={16} className={weatherDisplay.iconClassName} />
+            <span>{weatherSummary}</span>
           </div>
           <div className="flex items-center gap-2 px-3">
             <RefreshCcw size={16} className="text-blue-400" />
-            <span>
-              Updated {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
+            <span>Updated {updatedLabel}</span>
           </div>
         </div>
       </header>

@@ -1,22 +1,15 @@
-## Integrity Dashboard
+This README will open when you open git repo
 
-# React + Vite
+# Quickstart
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+To run the web app:
 
-Currently, two official plugins are available:
+```
+cd web
+npm run dev
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## React Compiler
+# Project Description
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-
-## Quickstart
-
-To run: `npm run dev`
+Integrity Dashboard is a personal command centre built with React and Vite, designed to bring health, mood, finances, schedule, and daily priorities into a single interface. It helps turn scattered personal data into a clear, holistic view so better decisions can be made with less friction.
