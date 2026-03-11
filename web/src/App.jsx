@@ -67,9 +67,9 @@ const CHART_TOOLTIP_STYLE = {
 
 const AXIS_TICK_STYLE = { fill: '#64748b', fontSize: 12 }
 
-const AREA_ANIMATION_DURATION = 1500
-const BAR_ANIMATION_DURATION = 400
-const PIE_ANIMATION_DURATION = 1500
+const AREA_ANIMATION_DURATION = 3000
+const BAR_ANIMATION_DURATION = 1500
+const PIE_ANIMATION_DURATION = 2500
 
 const VitalityChart = React.memo(function VitalityChart() {
   return (
