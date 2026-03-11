@@ -41,6 +41,171 @@ const MELBOURNE_COORDS = {
   longitude: 144.9631,
 }
 
+const HEALTH_DATA = [
+  { day: 'Mon', steps: 6200, calories: 2100, hr: 62, hrv: 55, mood: 6, spend: 45 },
+  { day: 'Tue', steps: 8400, calories: 2350, hr: 58, hrv: 62, mood: 8, spend: 20 },
+  { day: 'Wed', steps: 3100, calories: 1800, hr: 68, hrv: 45, mood: 4, spend: 120 },
+  { day: 'Thu', steps: 7800, calories: 2200, hr: 60, hrv: 58, mood: 7, spend: 15 },
+  { day: 'Fri', steps: 9200, calories: 2500, hr: 55, hrv: 70, mood: 9, spend: 30 },
+  { day: 'Sat', steps: 5500, calories: 2000, hr: 64, hrv: 52, mood: 5, spend: 85 },
+  { day: 'Sun', steps: 4200, calories: 1900, hr: 61, hrv: 50, mood: 6, spend: 40 },
+]
+
+const FINANCIAL_CATEGORIES = [
+  { name: 'Groceries', value: 450, color: '#10b981' },
+  { name: 'Recovery/Health', value: 300, color: '#3b82f6' },
+  { name: 'Rent', value: 1200, color: '#6366f1' },
+  { name: 'Subscriptions', value: 80, color: '#f59e0b' },
+  { name: 'Discretionary', value: 250, color: '#ef4444' },
+]
+
+const CHART_TOOLTIP_STYLE = {
+  backgroundColor: '#0f172a',
+  border: '1px solid #1e293b',
+  borderRadius: '8px',
+}
+
+const AXIS_TICK_STYLE = { fill: '#64748b', fontSize: 12 }
+
+const AREA_ANIMATION_DURATION = 1500
+const BAR_ANIMATION_DURATION = 400
+const PIE_ANIMATION_DURATION = 1500
+
+const VitalityChart = React.memo(function VitalityChart() {
+  return (
+    <div className="h-48 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={HEALTH_DATA}>
+          <defs>
+            <linearGradient id="colorSteps" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+          <XAxis dataKey="day" axisLine={false} tickLine={false} tick={AXIS_TICK_STYLE} />
+          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={{ color: '#f1f5f9' }} />
+          <Area
+            type="monotone"
+            dataKey="steps"
+            stroke="#3b82f6"
+            fillOpacity={1}
+            fill="url(#colorSteps)"
+            strokeWidth={2}
+            animationDuration={AREA_ANIMATION_DURATION}
+            isAnimationActive
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+})
+
+const CashFlowChart = React.memo(function CashFlowChart() {
+  return (
+    <div className="h-40 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={HEALTH_DATA}>
+          <XAxis dataKey="day" axisLine={false} tickLine={false} tick={AXIS_TICK_STYLE} />
+          <Tooltip
+            cursor={{ fill: '#1e293b' }}
+            contentStyle={{ backgroundColor: '#0f172a', border: 'none' }}
+          />
+          <Bar
+            dataKey="spend"
+            fill="#6366f1"
+            radius={[4, 4, 0, 0]}
+            animationDuration={BAR_ANIMATION_DURATION}
+            isAnimationActive
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+})
+
+const AllocationChart = React.memo(function AllocationChart() {
+  return (
+    <div className="flex h-56 w-full items-center">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={FINANCIAL_CATEGORIES}
+            cx="50%"
+            cy="50%"
+            innerRadius={60}
+            outerRadius={80}
+            paddingAngle={5}
+            dataKey="value"
+            animationDuration={PIE_ANIMATION_DURATION}
+            isAnimationActive
+          >
+            {FINANCIAL_CATEGORIES.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={entry.color} />
+            ))}
+          </Pie>
+          <Tooltip />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="flex flex-col gap-2">
+        {FINANCIAL_CATEGORIES.map((cat) => (
+          <div key={cat.name} className="flex items-center gap-2 text-xs">
+            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: cat.color }} />
+            <span className="text-slate-400">{cat.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+})
+
+const Card = ({ title, icon: Icon, children, className = '', subtitle = '' }) => (
+  <div className={`rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm ${className}`}>
+    <div className="mb-6 flex items-center justify-between">
+      <div>
+        <h3 className="flex items-center gap-2 font-medium text-slate-400">
+          {Icon && <Icon size={18} className="text-blue-400" />}
+          {title}
+        </h3>
+        {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
+      </div>
+      <button className="text-slate-600 transition-colors hover:text-slate-400">
+        <ChevronRight size={20} />
+      </button>
+    </div>
+    {children}
+  </div>
+)
+
+const Metric = ({ label, value, unit, trend, trendValue }) => (
+  <div className="flex flex-col">
+    <span className="text-sm text-slate-500">{label}</span>
+    <div className="flex items-baseline gap-1">
+      <span className="text-2xl font-bold text-slate-100">{value}</span>
+      <span className="text-xs text-slate-500">{unit}</span>
+    </div>
+    {trend && (
+      <span className={`mt-1 text-xs ${trend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}>
+        {trend === 'up' ? '↑' : '↓'} {trendValue}
+      </span>
+    )}
+  </div>
+)
+
+const EffortBadge = ({ type, count }) => {
+  const colors = {
+    low: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400',
+    medium: 'border-amber-500/20 bg-amber-500/10 text-amber-400',
+    high: 'border-rose-500/20 bg-rose-500/10 text-rose-400',
+  }
+
+  return (
+    <div className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${colors[type]}`}>
+      {type} : {count}
+    </div>
+  )
+}
+
 const getWeatherDisplay = (code) => {
   if (code === 0) {
     return { label: 'Clear', icon: Sun, iconClassName: 'text-amber-400' }
@@ -78,23 +243,12 @@ const getWeatherDisplay = (code) => {
 }
 
 const App = () => {
-  const [currentTime, setCurrentTime] = useState(new Date())
   const [weather, setWeather] = useState({
     code: null,
     temperature: null,
     updatedAt: null,
     status: 'loading',
   })
-
-  const healthData = [
-    { day: 'Mon', steps: 6200, calories: 2100, hr: 62, hrv: 55, mood: 6, spend: 45 },
-    { day: 'Tue', steps: 8400, calories: 2350, hr: 58, hrv: 62, mood: 8, spend: 20 },
-    { day: 'Wed', steps: 3100, calories: 1800, hr: 68, hrv: 45, mood: 4, spend: 120 },
-    { day: 'Thu', steps: 7800, calories: 2200, hr: 60, hrv: 58, mood: 7, spend: 15 },
-    { day: 'Fri', steps: 9200, calories: 2500, hr: 55, hrv: 70, mood: 9, spend: 30 },
-    { day: 'Sat', steps: 5500, calories: 2000, hr: 64, hrv: 52, mood: 5, spend: 85 },
-    { day: 'Sun', steps: 4200, calories: 1900, hr: 61, hrv: 50, mood: 6, spend: 40 },
-  ]
 
   const taskStats = {
     low: 5,
@@ -109,19 +263,6 @@ const App = () => {
     timeLeft: '45 mins',
     type: 'Health',
   }
-
-  const financialCategories = [
-    { name: 'Groceries', value: 450, color: '#10b981' },
-    { name: 'Recovery/Health', value: 300, color: '#3b82f6' },
-    { name: 'Rent', value: 1200, color: '#6366f1' },
-    { name: 'Subscriptions', value: 80, color: '#f59e0b' },
-    { name: 'Discretionary', value: 250, color: '#ef4444' },
-  ]
-
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
-    return () => clearInterval(timer)
-  }, [])
 
   useEffect(() => {
     let isCancelled = false
@@ -182,56 +323,7 @@ const App = () => {
         : `${weather.temperature}°C ${weatherDisplay.label}`
   const updatedLabel = weather.updatedAt
     ? new Date(weather.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-
-  const Card = ({ title, icon: Icon, children, className = '', subtitle = '' }) => (
-    <div className={`rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm ${className}`}>
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h3 className="flex items-center gap-2 font-medium text-slate-400">
-            {Icon && <Icon size={18} className="text-blue-400" />}
-            {title}
-          </h3>
-          {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
-        </div>
-        <button className="text-slate-600 transition-colors hover:text-slate-400">
-          <ChevronRight size={20} />
-        </button>
-      </div>
-      {children}
-    </div>
-  )
-
-  const Metric = ({ label, value, unit, trend, trendValue }) => (
-    <div className="flex flex-col">
-      <span className="text-sm text-slate-500">{label}</span>
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-bold text-slate-100">{value}</span>
-        <span className="text-xs text-slate-500">{unit}</span>
-      </div>
-      {trend && (
-        <span className={`mt-1 text-xs ${trend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {trend === 'up' ? '↑' : '↓'} {trendValue}
-        </span>
-      )}
-    </div>
-  )
-
-  const EffortBadge = ({ type, count }) => {
-    const colors = {
-      low: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400',
-      medium: 'border-amber-500/20 bg-amber-500/10 text-amber-400',
-      high: 'border-rose-500/20 bg-rose-500/10 text-rose-400',
-    }
-
-    return (
-      <div
-        className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${colors[type]}`}
-      >
-        {type} : {count}
-      </div>
-    )
-  }
+    : 'pending'
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 font-sans text-slate-200 selection:bg-blue-500/30 md:p-8">
@@ -269,41 +361,7 @@ const App = () => {
                 <Metric label="HRV" value="62" unit="ms" trend="up" trendValue="5ms" />
                 <Metric label="Oxygen" value="98" unit="%" />
               </div>
-              <div className="h-48 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={healthData}>
-                    <defs>
-                      <linearGradient id="colorSteps" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                    <XAxis
-                      dataKey="day"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: '#64748b', fontSize: 12 }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        border: '1px solid #1e293b',
-                        borderRadius: '8px',
-                      }}
-                      itemStyle={{ color: '#f1f5f9' }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="steps"
-                      stroke="#3b82f6"
-                      fillOpacity={1}
-                      fill="url(#colorSteps)"
-                      strokeWidth={2}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+              <VitalityChart />
             </Card>
 
             <Card title="Mood / Energy" icon={Brain}>
@@ -338,54 +396,11 @@ const App = () => {
                   <div className="text-xl font-semibold text-emerald-400">$42.10 left</div>
                 </div>
               </div>
-              <div className="h-40 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={healthData}>
-                    <XAxis
-                      dataKey="day"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: '#64748b', fontSize: 12 }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: '#1e293b' }}
-                      contentStyle={{ backgroundColor: '#0f172a', border: 'none' }}
-                    />
-                    <Bar dataKey="spend" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <CashFlowChart />
             </Card>
 
             <Card title="Allocation" icon={DollarSign}>
-              <div className="flex h-56 w-full items-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={financialCategories}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {financialCategories.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex flex-col gap-2">
-                  {financialCategories.map((cat) => (
-                    <div key={cat.name} className="flex items-center gap-2 text-xs">
-                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: cat.color }} />
-                      <span className="text-slate-400">{cat.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AllocationChart />
             </Card>
           </div>
         </div>
