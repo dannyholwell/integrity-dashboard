@@ -14,6 +14,7 @@
 ### Changed
 
 - Refactored the frontend to use a lightweight hash-based page split instead of a single hardcoded dashboard view.
+- Added a route transition between the dashboard and Execution Center so the outgoing view fades/drops out and the incoming tiles fade in with a short upward stagger, with reduced-motion support.
 - Moved task data behind an async source module so the UI can later swap to an external provider without rewriting the page components.
 - Updated the dashboard Execution Center tile to use the shared task source for effort counts and preview items.
 - Moved the Vite app from the repository root into the `web/` directory.

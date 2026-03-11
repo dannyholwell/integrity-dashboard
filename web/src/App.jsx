@@ -48,6 +48,11 @@ const ROUTES = {
   executionCenter: 'execution-center',
 }
 
+const ROUTE_TRANSITION_MS = {
+  exit: 180,
+  enter: 320,
+}
+
 const HEALTH_DATA = [
   { day: 'Mon', steps: 6200, calories: 2100, hr: 62, hrv: 55, mood: 6, spend: 45 },
   { day: 'Tue', steps: 8400, calories: 2350, hr: 58, hrv: 62, mood: 8, spend: 20 },
@@ -227,6 +232,85 @@ const useHashRoute = () => {
   }
 
   return { route, navigate }
+}
+
+const usePrefersReducedMotion = () => {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const updatePreference = () => {
+      setPrefersReducedMotion(mediaQuery.matches)
+    }
+
+    updatePreference()
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updatePreference)
+
+      return () => {
+        mediaQuery.removeEventListener('change', updatePreference)
+      }
+    }
+
+    mediaQuery.addListener(updatePreference)
+
+    return () => {
+      mediaQuery.removeListener(updatePreference)
+    }
+  }, [])
+
+  return prefersReducedMotion
+}
+
+const useRouteTransition = (route) => {
+  const prefersReducedMotion = usePrefersReducedMotion()
+  const [displayedRoute, setDisplayedRoute] = useState(route)
+  const [transitionPhase, setTransitionPhase] = useState('idle')
+
+  useEffect(() => {
+    if (route === displayedRoute) {
+      return undefined
+    }
+
+    let startTimerId = 0
+    let swapTimerId = 0
+    let enterTimerId = 0
+
+    if (prefersReducedMotion) {
+      startTimerId = window.setTimeout(() => {
+        setDisplayedRoute(route)
+        setTransitionPhase('idle')
+      }, 0)
+
+      return () => {
+        window.clearTimeout(startTimerId)
+      }
+    }
+
+    startTimerId = window.setTimeout(() => {
+      setTransitionPhase('exiting')
+      swapTimerId = window.setTimeout(() => {
+        setDisplayedRoute(route)
+        setTransitionPhase('entering')
+        enterTimerId = window.setTimeout(() => {
+          setTransitionPhase('idle')
+        }, ROUTE_TRANSITION_MS.enter)
+      }, ROUTE_TRANSITION_MS.exit)
+    }, 0)
+
+    return () => {
+      window.clearTimeout(startTimerId)
+      window.clearTimeout(swapTimerId)
+      window.clearTimeout(enterTimerId)
+    }
+  }, [displayedRoute, prefersReducedMotion, route])
+
+  return { displayedRoute, transitionPhase }
 }
 
 const useWeather = () => {
@@ -420,8 +504,20 @@ const AllocationChart = React.memo(function AllocationChart() {
   )
 })
 
-const Card = ({ title, icon: Icon, children, className = '', subtitle = '', onAction, actionLabel }) => (
-  <div className={`rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm ${className}`}>
+const Card = ({
+  title,
+  icon: Icon,
+  children,
+  className = '',
+  subtitle = '',
+  onAction,
+  actionLabel,
+  tileIndex = 0,
+}) => (
+  <div
+    className={`route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm ${className}`}
+    style={{ '--tile-index': tileIndex }}
+  >
     <div className="mb-6 flex items-center justify-between">
       <div>
         <h3 className="flex items-center gap-2 font-medium text-slate-400">
@@ -497,14 +593,15 @@ const TaskPreviewItem = ({ task }) => (
   </li>
 )
 
-const TaskDetailCard = ({ task }) => {
+const TaskDetailCard = ({ task, tileIndex = 0 }) => {
   const effortMeta = EFFORT_META[task.effort]
   const categoryMeta = getCategoryMeta(task.category)
   const statusClassName = TASK_STATUS_META[task.status] ?? TASK_STATUS_META.ready
 
   return (
     <article
-      className={`rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/20 backdrop-blur-sm`}
+      className={`route-card rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/20 backdrop-blur-sm`}
+      style={{ '--tile-index': tileIndex }}
     >
       <div className={`mb-4 border-l-4 pl-4 ${effortMeta.borderClassName}`}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -598,7 +695,7 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
     <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-12">
       <div className="space-y-6 md:col-span-8">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Card title="Vitality" icon={Activity} className="sm:col-span-2">
+          <Card title="Vitality" icon={Activity} className="sm:col-span-2" tileIndex={0}>
             <div className="mb-8 grid grid-cols-2 gap-6 sm:grid-cols-4">
               <Metric label="Steps" value="8,402" unit="steps" trend="up" trendValue="12%" />
               <Metric label="Calories" value="2,140" unit="kcal" />
@@ -608,7 +705,7 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
             <VitalityChart />
           </Card>
 
-          <Card title="Mood / Energy" icon={Brain}>
+          <Card title="Mood / Energy" icon={Brain} tileIndex={1}>
             <div className="flex h-full items-center justify-center pb-8">
               <div className="relative flex flex-col items-center">
                 <div className="text-5xl font-bold text-amber-400">7.2</div>
@@ -627,7 +724,7 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Card title="Cash Flow" icon={Wallet}>
+          <Card title="Cash Flow" icon={Wallet} tileIndex={2}>
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <div className="text-sm text-slate-500">Total Balance</div>
@@ -641,14 +738,17 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
             <CashFlowChart />
           </Card>
 
-          <Card title="Allocation" icon={DollarSign}>
+          <Card title="Allocation" icon={DollarSign} tileIndex={3}>
             <AllocationChart />
           </Card>
         </div>
       </div>
 
       <div className="space-y-6 md:col-span-4">
-        <div className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-700 p-5 text-white shadow-xl shadow-indigo-500/20">
+        <div
+          className="route-card group relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-700 p-5 text-white shadow-xl shadow-indigo-500/20"
+          style={{ '--tile-index': 4 }}
+        >
           <div className="relative z-10">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-100">
               <Calendar size={14} />
@@ -676,6 +776,7 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
           subtitle="Manage your daily energy budget"
           onAction={onOpenExecutionCenter}
           actionLabel="Open Execution Center"
+          tileIndex={5}
         >
           <div className="mb-6 flex flex-wrap gap-2">
             <EffortBadge type="low" count={taskStatus === 'ready' ? taskStats.low : 0} />
@@ -707,7 +808,7 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
           )}
         </Card>
 
-        <Card title="Integrity Engine" icon={TrendingUp}>
+        <Card title="Integrity Engine" icon={TrendingUp} tileIndex={6}>
           <div className="space-y-4">
             <div className="flex items-start gap-3">
               <div className="rounded-lg bg-blue-500/10 p-1.5 text-blue-400">
@@ -761,7 +862,10 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
         Back to Dashboard
       </button>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur-sm md:p-8">
+      <section
+        className="route-card rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur-sm md:p-8"
+        style={{ '--tile-index': 0 }}
+      >
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
             <div className="flex items-center gap-3">
@@ -787,15 +891,24 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
         </div>
 
         <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+          <div
+            className="route-card rounded-2xl border border-slate-800 bg-slate-950/70 p-4"
+            style={{ '--tile-index': 1 }}
+          >
             <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Ready to Execute</div>
             <div className="mt-2 text-3xl font-bold text-emerald-300">{readyCount}</div>
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+          <div
+            className="route-card rounded-2xl border border-slate-800 bg-slate-950/70 p-4"
+            style={{ '--tile-index': 2 }}
+          >
             <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">In Motion</div>
             <div className="mt-2 text-3xl font-bold text-blue-300">{activeCount}</div>
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+          <div
+            className="route-card rounded-2xl border border-slate-800 bg-slate-950/70 p-4"
+            style={{ '--tile-index': 3 }}
+          >
             <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Waiting / Deferred</div>
             <div className="mt-2 text-3xl font-bold text-amber-300">{waitingCount}</div>
           </div>
@@ -860,13 +973,19 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
       </section>
 
       {taskStatus === 'loading' && (
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-sm text-slate-400">
+        <section
+          className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-sm text-slate-400"
+          style={{ '--tile-index': 4 }}
+        >
           Loading task feed...
         </section>
       )}
 
       {taskStatus === 'error' && (
-        <section className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-6 text-sm text-rose-200">
+        <section
+          className="route-card rounded-2xl border border-rose-500/20 bg-rose-500/10 p-6 text-sm text-rose-200"
+          style={{ '--tile-index': 4 }}
+        >
           The task feed failed to load. The page is ready for an external source, but the current provider did not return data.
         </section>
       )}
@@ -875,15 +994,23 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-4">
             {filteredTasks.length > 0 ? (
-              filteredTasks.map((task) => <TaskDetailCard key={task.id} task={task} />)
+              filteredTasks.map((task, index) => (
+                <TaskDetailCard key={task.id} task={task} tileIndex={Math.min(index + 4, 8)} />
+              ))
             ) : (
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-sm text-slate-400">
+              <div
+                className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-sm text-slate-400"
+                style={{ '--tile-index': 4 }}
+              >
                 No tasks match the selected category and effort filters.
               </div>
             )}
           </div>
 
-          <aside className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm">
+          <aside
+            className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+            style={{ '--tile-index': 5 }}
+          >
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-300">
               <Zap size={16} className="text-blue-300" />
               Execution Snapshot
@@ -918,6 +1045,7 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
 
 const App = () => {
   const { route, navigate } = useHashRoute()
+  const { displayedRoute, transitionPhase } = useRouteTransition(route)
   const weather = useWeather()
   const { items: tasks, status: taskStatus } = useTasks()
 
@@ -944,16 +1072,20 @@ const App = () => {
     <div className="min-h-screen bg-slate-950 p-4 font-sans text-slate-200 selection:bg-blue-500/30 md:p-8">
       <DashboardHeader weatherDisplay={weatherDisplay} weatherSummary={weatherSummary} updatedLabel={updatedLabel} />
 
-      {route === ROUTES.executionCenter ? (
-        <ExecutionCenterPage tasks={tasks} taskStatus={taskStatus} onBackToDashboard={() => navigate(ROUTES.dashboard)} />
-      ) : (
-        <DashboardPage
-          tasks={tasks}
-          taskStatus={taskStatus}
-          nextEvent={nextEvent}
-          onOpenExecutionCenter={() => navigate(ROUTES.executionCenter)}
-        />
-      )}
+      <div className={`route-transition route-transition--${transitionPhase}`}>
+        <div key={displayedRoute} className="route-transition__page">
+          {displayedRoute === ROUTES.executionCenter ? (
+            <ExecutionCenterPage tasks={tasks} taskStatus={taskStatus} onBackToDashboard={() => navigate(ROUTES.dashboard)} />
+          ) : (
+            <DashboardPage
+              tasks={tasks}
+              taskStatus={taskStatus}
+              nextEvent={nextEvent}
+              onOpenExecutionCenter={() => navigate(ROUTES.executionCenter)}
+            />
+          )}
+        </div>
+      </div>
 
       <DashboardFooter />
     </div>
