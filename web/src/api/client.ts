@@ -38,6 +38,15 @@ export const apiPostJson = async (path: string, payload: unknown) =>
     body: JSON.stringify(payload),
   })
 
+export const apiPatchJson = async (path: string, payload: unknown) =>
+  apiRequest(path, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
 export const apiDelete = async (path: string) =>
   apiRequest(path, {
     method: 'DELETE',

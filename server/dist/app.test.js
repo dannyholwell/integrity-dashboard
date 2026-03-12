@@ -99,4 +99,49 @@ describe('buildApp', () => {
         expect(existsSync(join(uploadsRoot, 'tasks', uploadPayload.item.storedFileName))).toBe(false);
         await app.close();
     });
+    it('updates finance merchant and category through the local API', async () => {
+        const { app, db } = createTestApp();
+        db.prepare(`
+      INSERT INTO core_account (
+        id,
+        source_system,
+        source_account_id,
+        name,
+        institution,
+        account_type
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run('acct-test', 'test-source', 'acct-1', 'Test Account', 'Test Bank', 'transaction');
+        db.prepare(`
+      INSERT INTO core_transaction (
+        id,
+        account_id,
+        source_system,
+        source_record_id,
+        posted_at,
+        description,
+        merchant,
+        category,
+        amount_minor,
+        currency,
+        direction,
+        dedupe_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('txn-test', 'acct-test', 'test-source', 'txn-1', '2026-03-12', 'Coffee purchase', 'Old Merchant', 'Cafe & coffee', 550, 'AUD', 'debit', 'txn-test');
+        const response = await app.inject({
+            method: 'PATCH',
+            url: '/api/finance/transactions/txn-test',
+            payload: {
+                merchant: 'New Merchant',
+                category: 'Groceries',
+            },
+        });
+        expect(response.statusCode).toBe(200);
+        const payload = response.json();
+        expect(payload.item.merchant).toBe('New Merchant');
+        expect(payload.item.category).toBe('Groceries');
+        const row = db.prepare('SELECT merchant, category FROM core_transaction WHERE id = ?').get('txn-test');
+        expect(row.merchant).toBe('New Merchant');
+        expect(row.category).toBe('Groceries');
+        await app.close();
+    });
 });

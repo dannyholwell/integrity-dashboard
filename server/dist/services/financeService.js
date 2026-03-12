@@ -1,17 +1,49 @@
 import { CATEGORY_BREAKDOWN_QUERY, RECENT_SPEND_QUERY } from '../db/sql/financeQueries.js';
 const CATEGORY_COLORS = {
+    Alcohol: '#ec4899',
     'Cafe & coffee': '#f59e0b',
+    'Credit card repayments': '#475569',
+    Donations: '#14b8a6',
+    'Electronics & technology': '#7c3aed',
+    Fees: '#ef4444',
     Groceries: '#10b981',
-    'Internal transfers': '#64748b',
+    'Internal transfers': '#eab308',
+    Medical: '#22c55e',
+    Media: '#a855f7',
     'Other shopping': '#8b5cf6',
+    'Parking & tolls': '#f97316',
+    'Personal care': '#fb7185',
+    'Phone & internet': '#3b82f6',
+    'Public transport': '#0ea5e9',
     'Recovery/Health': '#3b82f6',
     'Restaurants & takeaway': '#f97316',
     Rent: '#6366f1',
     Subscriptions: '#f59e0b',
     'Transfers out': '#06b6d4',
+    Uncategorised: '#94a3b8',
     Discretionary: '#ef4444',
 };
 const toCurrency = (minor) => Number((minor / 100).toFixed(2));
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const getLocalDateKey = (value) => {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+const getLastSevenDaysSpend = (rows) => {
+    const spendByDay = new Map(rows.map((row) => [row.day, row.spend_minor]));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }, (_, index) => {
+        const day = new Date(today.getTime() - (6 - index) * DAY_IN_MS);
+        const dayKey = getLocalDateKey(day);
+        return {
+            day: day.toLocaleDateString('en-AU', { weekday: 'short' }),
+            spend: toCurrency(spendByDay.get(dayKey) ?? 0),
+        };
+    });
+};
 export const createFinanceService = (db) => {
     const getFinanceOverview = () => {
         const totalBalanceRow = db
@@ -33,6 +65,7 @@ export const createFinanceService = (db) => {
         SELECT COALESCE(SUM(amount_minor), 0) AS spend_minor
         FROM core_transaction
         WHERE direction = 'debit'
+          AND COALESCE(category, '') <> 'Internal transfers'
           AND posted_at >= date('now', 'localtime', 'start of month')
       `)
             .get();
@@ -53,10 +86,7 @@ export const createFinanceService = (db) => {
                 value: toCurrency(row.value_minor),
                 color: CATEGORY_COLORS[row.name] ?? '#94a3b8',
             })),
-            recentDailySpend: recentSpendRows.map((row) => ({
-                day: new Date(`${row.day}T00:00:00`).toLocaleDateString('en-AU', { weekday: 'short' }),
-                spend: toCurrency(row.spend_minor),
-            })),
+            recentDailySpend: getLastSevenDaysSpend(recentSpendRows),
         };
     };
     const listTransactions = (query = {}) => {
@@ -105,8 +135,49 @@ export const createFinanceService = (db) => {
             direction: row.direction,
         }));
     };
+    const updateTransaction = (id, update) => {
+        const existing = db
+            .prepare(`
+        SELECT
+          id,
+          posted_at,
+          description,
+          merchant,
+          category,
+          amount_minor,
+          currency,
+          direction
+        FROM core_transaction
+        WHERE id = ?
+      `)
+            .get(id);
+        if (!existing) {
+            throw new Error('Transaction not found');
+        }
+        const merchant = update.merchant === undefined ? existing.merchant : update.merchant;
+        const category = update.category ?? existing.category;
+        db.prepare(`
+      UPDATE core_transaction
+      SET
+        merchant = ?,
+        category = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(merchant, category, id);
+        return {
+            id: existing.id,
+            postedAt: existing.posted_at,
+            description: existing.description,
+            merchant,
+            category,
+            amount: toCurrency(existing.amount_minor),
+            currency: existing.currency,
+            direction: existing.direction,
+        };
+    };
     return {
         getFinanceOverview,
         listTransactions,
+        updateTransaction,
     };
 };

@@ -31,16 +31,17 @@ import {
     DollarSign,
     MapPin,
     RefreshCcw,
-    Trash2,
-    Upload,
-    Sun,
-    TrendingUp,
+  Trash2,
+  Upload,
+  Sun,
+  Pencil,
+  TrendingUp,
   Wallet,
   Zap,
 } from 'lucide-react'
 import { deleteDataFile, loadDataUploads, uploadDataFile } from './api/dataManagementApi'
 import { loadDashboardSummary } from './api/dashboardApi'
-import { loadFinanceTransactions } from './api/financeApi'
+import { loadFinanceTransactions, updateFinanceTransaction } from './api/financeApi'
 import { loadTasks } from './data/taskSource'
 
 const MELBOURNE_COORDS = {
@@ -268,6 +269,26 @@ const formatTaskStatusLabel = (status) => `${status.charAt(0).toUpperCase()}${st
 const formatCurrency = (value) => `$${Number(value ?? 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const getTrendDirection = (value) => (value >= 0 ? 'up' : 'down')
 const formatDirectionLabel = (direction) => `${direction.charAt(0).toUpperCase()}${direction.slice(1)}`
+const DASHBOARD_ALLOCATION_MAX_CATEGORIES = 7
+
+const groupAllocationForDashboard = (allocation) => {
+  if (allocation.length <= DASHBOARD_ALLOCATION_MAX_CATEGORIES) {
+    return allocation
+  }
+
+  const primary = allocation.slice(0, DASHBOARD_ALLOCATION_MAX_CATEGORIES - 1)
+  const remainder = allocation.slice(DASHBOARD_ALLOCATION_MAX_CATEGORIES - 1)
+  const otherValue = remainder.reduce((sum, category) => sum + category.value, 0)
+
+  return [
+    ...primary,
+    {
+      name: 'Other',
+      value: Number(otherValue.toFixed(2)),
+      color: '#64748b',
+    },
+  ]
+}
 
 const useHashRoute = () => {
   const [route, setRoute] = useState(getCurrentRoute)
@@ -436,6 +457,26 @@ const useTasks = () => {
     status: 'loading',
   })
 
+  const refresh = async () => {
+    setTaskState((current) => ({
+      ...current,
+      status: 'loading',
+    }))
+
+    try {
+      const items = await loadTasks()
+      setTaskState({
+        items,
+        status: 'ready',
+      })
+    } catch {
+      setTaskState({
+        items: [],
+        status: 'error',
+      })
+    }
+  }
+
   useEffect(() => {
     let isCancelled = false
 
@@ -470,7 +511,10 @@ const useTasks = () => {
     }
   }, [])
 
-  return taskState
+  return {
+    ...taskState,
+    refresh,
+  }
 }
 
 const useDashboardSummary = () => {
@@ -478,6 +522,26 @@ const useDashboardSummary = () => {
     summary: null,
     status: 'loading',
   })
+
+  const refresh = async () => {
+    setDashboardState((current) => ({
+      ...current,
+      status: 'loading',
+    }))
+
+    try {
+      const summary = await loadDashboardSummary()
+      setDashboardState({
+        summary,
+        status: 'ready',
+      })
+    } catch {
+      setDashboardState({
+        summary: null,
+        status: 'error',
+      })
+    }
+  }
 
   useEffect(() => {
     let isCancelled = false
@@ -513,7 +577,10 @@ const useDashboardSummary = () => {
     }
   }, [])
 
-  return dashboardState
+  return {
+    ...dashboardState,
+    refresh,
+  }
 }
 
 const useDataUploads = () => {
@@ -588,6 +655,26 @@ const useFinanceTransactions = (active) => {
     status: 'idle',
   })
 
+  const refresh = async () => {
+    setFinanceState((current) => ({
+      ...current,
+      status: 'loading',
+    }))
+
+    try {
+      const items = await loadFinanceTransactions({ limit: 5000 })
+      setFinanceState({
+        items,
+        status: 'ready',
+      })
+    } catch {
+      setFinanceState({
+        items: [],
+        status: 'error',
+      })
+    }
+  }
+
   useEffect(() => {
     if (!active) {
       return undefined
@@ -626,7 +713,10 @@ const useFinanceTransactions = (active) => {
     }
   }, [active])
 
-  return financeState
+  return {
+    ...financeState,
+    refresh,
+  }
 }
 
 const parseCsvLine = (line) => {
@@ -817,7 +907,47 @@ const CashFlowChart = React.memo(function CashFlowChart({ data }) {
   )
 })
 
-const AllocationChart = React.memo(function AllocationChart({ allocation }) {
+const AllocationChart = React.memo(function AllocationChart({ allocation, layout = 'side' }) {
+  if (layout === 'stacked') {
+    return (
+      <div className="w-full">
+        <div className="flex h-64 w-full justify-center">
+          <div className="h-full w-full max-w-[320px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={allocation}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={68}
+                  outerRadius={92}
+                  paddingAngle={5}
+                  dataKey="value"
+                  animationDuration={PIE_ANIMATION_DURATION}
+                  isAnimationActive
+                >
+                  {allocation.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3">
+          {allocation.map((category) => (
+            <div key={category.name} className="flex min-w-0 items-start gap-2 text-xs">
+              <div className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
+              <span className="min-w-0 break-words text-slate-400">{category.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-56 w-full items-center">
       <ResponsiveContainer width="100%" height="100%">
@@ -1076,6 +1206,7 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
     allocation: [],
     recentDailySpend: [],
   }
+  const dashboardAllocation = groupAllocationForDashboard(financeSummary.allocation)
   const dashboardStateMessage =
     summaryStatus === 'loading'
       ? 'Loading local dashboard data...'
@@ -1144,7 +1275,7 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
           </Card>
 
           <Card title="Allocation" icon={DollarSign} onAction={onOpenFinancePage} actionLabel="Open Finance" tileIndex={3}>
-            <AllocationChart allocation={financeSummary.allocation} />
+            <AllocationChart allocation={dashboardAllocation} />
           </Card>
         </div>
       </div>
@@ -1239,7 +1370,7 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
   )
 }
 
-const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus, onBackToDashboard }) => {
+const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus, onBackToDashboard, onUpdateTransaction }) => {
   const financeSummary = summary?.finance ?? {
     totalBalance: 0,
     dailyBudgetLeft: 0,
@@ -1248,6 +1379,51 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
   }
 
   const latestPostedAt = transactions.length > 0 ? transactions[0].postedAt : null
+  const [editingTransaction, setEditingTransaction] = useState(null)
+  const [editForm, setEditForm] = useState({
+    merchant: '',
+    category: '',
+  })
+  const [editStatus, setEditStatus] = useState('idle')
+  const [editError, setEditError] = useState('')
+
+  const openEditModal = (transaction) => {
+    setEditingTransaction(transaction)
+    setEditForm({
+      merchant: transaction.merchant ?? '',
+      category: transaction.category ?? '',
+    })
+    setEditStatus('idle')
+    setEditError('')
+  }
+
+  const closeEditModal = () => {
+    setEditingTransaction(null)
+    setEditStatus('idle')
+    setEditError('')
+  }
+
+  const handleEditSubmit = async (event) => {
+    event.preventDefault()
+
+    if (!editingTransaction) {
+      return
+    }
+
+    setEditStatus('saving')
+    setEditError('')
+
+    try {
+      await onUpdateTransaction(editingTransaction.id, {
+        merchant: editForm.merchant.trim() === '' ? null : editForm.merchant.trim(),
+        category: editForm.category.trim(),
+      })
+      closeEditModal()
+    } catch (error) {
+      setEditStatus('error')
+      setEditError(error instanceof Error ? error.message : 'Failed to save transaction changes')
+    }
+  }
 
   return (
     <main className="mx-auto max-w-7xl space-y-6">
@@ -1301,11 +1477,11 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
 
       <section className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
         <Card title="Allocation" icon={DollarSign} tileIndex={1}>
-          <AllocationChart allocation={financeSummary.allocation} />
+          <AllocationChart allocation={financeSummary.allocation} layout="stacked" />
         </Card>
 
         <section
-          className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+          className="route-card flex max-h-[70vh] min-h-[28rem] flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
           style={{ '--tile-index': 2 }}
         >
           <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -1331,7 +1507,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
               No transactions are available in the database yet.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="finance-transactions-scroll min-h-0 flex-1 overflow-auto pr-2">
               <table className="min-w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
@@ -1341,6 +1517,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                     <th className="pb-3 pr-4 font-semibold">Category</th>
                     <th className="pb-3 pr-4 font-semibold">Direction</th>
                     <th className="pb-3 text-right font-semibold">Amount</th>
+                    <th className="pb-3 pl-4 text-right font-semibold">Edit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1372,6 +1549,17 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                         {transaction.direction === 'credit' ? '+' : '-'}
                         {formatCurrency(transaction.amount).replace('$', '')}
                       </td>
+                      <td className="py-4 pl-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(transaction)}
+                          aria-label={`Edit ${transaction.description}`}
+                          title={`Edit ${transaction.description}`}
+                          className="inline-flex h-9 w-9 items-center justify-center text-blue-400 transition-colors hover:text-blue-300"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1380,6 +1568,63 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
           )}
         </section>
       </section>
+
+      {editingTransaction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl shadow-slate-950/50">
+            <div className="mb-5">
+              <h3 className="text-lg font-semibold text-slate-100">Edit Transaction</h3>
+              <p className="mt-1 text-sm text-slate-500">{editingTransaction.description}</p>
+            </div>
+
+            <form className="space-y-5" onSubmit={handleEditSubmit}>
+              <label className="block">
+                <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">Merchant</span>
+                <input
+                  type="text"
+                  value={editForm.merchant}
+                  onChange={(event) => setEditForm((current) => ({ ...current, merchant: event.target.value }))}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition-colors focus:border-blue-400"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">Category</span>
+                <input
+                  type="text"
+                  value={editForm.category}
+                  onChange={(event) => setEditForm((current) => ({ ...current, category: event.target.value }))}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition-colors focus:border-blue-400"
+                  required
+                />
+              </label>
+
+              {editError && (
+                <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                  {editError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-300 transition-colors hover:border-slate-600 hover:text-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editStatus === 'saving'}
+                  className="rounded-full bg-blue-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-blue-500/50"
+                >
+                  {editStatus === 'saving' ? 'Saving...' : 'Save changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
@@ -1863,10 +2108,10 @@ const App = () => {
   const { route, navigate } = useHashRoute()
   const { displayedRoute, transitionPhase } = useRouteTransition(route)
   const weather = useWeather()
-  const { summary, status: summaryStatus } = useDashboardSummary()
-  const { items: tasks, status: taskStatus } = useTasks()
+  const { summary, status: summaryStatus, refresh: refreshSummary } = useDashboardSummary()
+  const { items: tasks, status: taskStatus, refresh: refreshTasks } = useTasks()
   const { items: uploads, status: uploadsStatus, refresh: refreshUploads } = useDataUploads()
-  const { items: financeTransactions, status: financeTransactionsStatus } = useFinanceTransactions(route === ROUTES.finance)
+  const { items: financeTransactions, status: financeTransactionsStatus, refresh: refreshFinanceTransactions } = useFinanceTransactions(route === ROUTES.finance)
 
   const weatherDisplay = getWeatherDisplay(weather.code)
   const weatherSummary =
@@ -1881,13 +2126,19 @@ const App = () => {
 
   const handleUploadFile = async (payload) => {
     const result = await uploadDataFile(payload)
-    await refreshUploads()
+    await Promise.all([refreshUploads(), refreshSummary(), refreshTasks()])
     return result
   }
 
   const handleDeleteFile = async (id) => {
     await deleteDataFile(id)
     await refreshUploads()
+  }
+
+  const handleUpdateFinanceTransaction = async (id, payload) => {
+    const result = await updateFinanceTransaction(id, payload)
+    await Promise.all([refreshSummary(), refreshFinanceTransactions()])
+    return result
   }
 
   return (
@@ -1911,6 +2162,7 @@ const App = () => {
               transactions={financeTransactions}
               transactionsStatus={financeTransactionsStatus}
               onBackToDashboard={() => navigate(ROUTES.dashboard)}
+              onUpdateTransaction={handleUpdateFinanceTransaction}
             />
           ) : displayedRoute === ROUTES.dataManagement ? (
             <DataManagementPage

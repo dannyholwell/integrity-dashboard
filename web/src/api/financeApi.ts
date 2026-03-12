@@ -1,4 +1,4 @@
-import { apiGet } from './client'
+import { apiGet, apiPatchJson } from './client'
 
 export const loadFinanceOverview = async () => apiGet('/finance/overview')
 
@@ -14,4 +14,9 @@ export const loadFinanceTransactions = async (query = {}) => {
   const suffix = params.size > 0 ? `?${params.toString()}` : ''
   const payload = await apiGet(`/finance/transactions${suffix}`)
   return payload.items
+}
+
+export const updateFinanceTransaction = async (id, payload) => {
+  const response = await apiPatchJson(`/finance/transactions/${id}`, payload)
+  return response.item
 }
