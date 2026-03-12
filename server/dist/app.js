@@ -5,7 +5,7 @@ import { registerFinanceRoutes } from './routes/finance.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerMoodRoutes } from './routes/mood.js';
 import { registerTaskRoutes } from './routes/tasks.js';
-export const buildApp = (db, logLevel, uploadsRoot) => {
+export const buildApp = (db, logLevel, uploadsRoot, runImport) => {
     const app = Fastify({
         logger: {
             level: logLevel,
@@ -21,6 +21,7 @@ export const buildApp = (db, logLevel, uploadsRoot) => {
     });
     app.decorate('db', db);
     app.decorate('uploadsRoot', uploadsRoot);
+    app.decorate('runImport', runImport);
     app.get('/api/healthcheck', async () => ({
         status: 'ok',
     }));

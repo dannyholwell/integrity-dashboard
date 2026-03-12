@@ -8,6 +8,7 @@ export const registerDataManagementRoutes = async (app: FastifyInstance) => {
   const service = createDataManagementService({
     db: app.db,
     uploadsRoot: app.uploadsRoot,
+    runImport: app.runImport,
   })
 
   app.get('/api/data-management/files', async (_request, reply) => {
@@ -21,8 +22,8 @@ export const registerDataManagementRoutes = async (app: FastifyInstance) => {
   app.post('/api/data-management/files', { bodyLimit: 10 * 1024 * 1024 }, async (request, reply) => {
     try {
       const payload = dataUploadSchema.parse(request.body)
-      const item = await service.saveFile(payload)
-      return reply.status(201).send({ item })
+      const result = await service.saveFile(payload)
+      return reply.status(201).send(result)
     } catch (error) {
       const statusCode = error instanceof ZodError ? 400 : 500
       return reply.status(statusCode).send({ error: getErrorMessage(error, 'Failed to upload CSV file') })

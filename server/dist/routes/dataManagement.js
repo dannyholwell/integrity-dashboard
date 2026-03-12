@@ -6,6 +6,7 @@ export const registerDataManagementRoutes = async (app) => {
     const service = createDataManagementService({
         db: app.db,
         uploadsRoot: app.uploadsRoot,
+        runImport: app.runImport,
     });
     app.get('/api/data-management/files', async (_request, reply) => {
         try {
@@ -18,8 +19,8 @@ export const registerDataManagementRoutes = async (app) => {
     app.post('/api/data-management/files', { bodyLimit: 10 * 1024 * 1024 }, async (request, reply) => {
         try {
             const payload = dataUploadSchema.parse(request.body);
-            const item = await service.saveFile(payload);
-            return reply.status(201).send({ item });
+            const result = await service.saveFile(payload);
+            return reply.status(201).send(result);
         }
         catch (error) {
             const statusCode = error instanceof ZodError ? 400 : 500;

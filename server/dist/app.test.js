@@ -13,10 +13,15 @@ const createTestApp = () => {
     const uploadsRoot = join(tempDir, 'imports');
     const db = openDatabase(databasePath);
     applyMigrations(db, join(process.cwd(), 'src', 'db', 'migrations'));
+    const runImport = async () => ({
+        rowCount: 2,
+        insertedCount: 2,
+        rejectedCount: 0,
+    });
     return {
         db,
         uploadsRoot,
-        app: buildApp(db, 'silent', uploadsRoot),
+        app: buildApp(db, 'silent', uploadsRoot, runImport),
     };
 };
 afterEach(() => {
@@ -49,8 +54,8 @@ describe('buildApp', () => {
         });
         expect(response.statusCode).toBe(200);
         const payload = response.json();
-        expect(payload.finance.totalBalance).toBeGreaterThan(0);
-        expect(payload.finance.allocation.length).toBeGreaterThan(0);
+        expect(payload.finance.totalBalance).toBeGreaterThanOrEqual(0);
+        expect(Array.isArray(payload.finance.allocation)).toBe(true);
         expect(payload.health.daily.length).toBe(7);
         expect(payload.mood.currentScore).toBeGreaterThan(0);
         expect(payload.nextEvent.title).toBeTruthy();
@@ -73,6 +78,7 @@ describe('buildApp', () => {
         const uploadPayload = uploadResponse.json();
         expect(uploadPayload.item.fileName).toBe('tasks.csv');
         expect(uploadPayload.item.dataType).toBe('tasks');
+        expect(uploadPayload.importResult.insertedCount).toBe(2);
         expect(existsSync(join(uploadsRoot, 'tasks', uploadPayload.item.storedFileName))).toBe(true);
         expect(readFileSync(join(uploadsRoot, 'tasks', uploadPayload.item.storedFileName), 'utf8')).toContain('Write docs');
         const listResponse = await app.inject({

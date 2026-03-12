@@ -35,11 +35,12 @@ import {
     Upload,
     Sun,
     TrendingUp,
-    Wallet,
-    Zap,
-  } from 'lucide-react'
+  Wallet,
+  Zap,
+} from 'lucide-react'
 import { deleteDataFile, loadDataUploads, uploadDataFile } from './api/dataManagementApi'
 import { loadDashboardSummary } from './api/dashboardApi'
+import { loadFinanceTransactions } from './api/financeApi'
 import { loadTasks } from './data/taskSource'
 
 const MELBOURNE_COORDS = {
@@ -51,6 +52,7 @@ const ROUTES = {
   dashboard: 'dashboard',
   executionCenter: 'execution-center',
   dataManagement: 'data-management',
+  finance: 'finance',
 }
 
 const ROUTE_TRANSITION_MS = {
@@ -160,15 +162,55 @@ const DATA_UPLOAD_TYPES = [
   { value: 'mood', label: 'Mood' },
 ]
 
+const CSV_FORMAT_GUIDE = {
+  tasks: {
+    title: 'Tasks CSV',
+    summary: 'Header names matter more than column order.',
+    required: 'Required: `title` or `name`.',
+    accepted: 'Accepted aliases: `id` / `source_record_id` / `source_id`, `summary` / `notes`, `due_date` / `due`, `source_path` / `path`.',
+    exampleHeaders: 'id,title,category,effort,status,due_date,source_path,summary',
+    notes: 'Valid `effort`: `low`, `medium`, `high`. Valid `status`: `ready`, `active`, `waiting`.',
+  },
+  finance: {
+    title: 'Finance CSV',
+    summary: 'Header names matter more than column order, but the app also supports the exact bank-export order from your uploaded file.',
+    required: 'Required: `Date`, `Amount`, and `Transaction Details` or the normalized equivalents `date`, `amount`, `description`.',
+    accepted:
+      'Accepted bank-export headers: `Date`, `Amount`, `Account Number`, `Transaction Type`, `Transaction Details`, `Balance`, `Category`, `Merchant Name`, `Processed On`.',
+    exampleHeaders: 'Date,Amount,Account Number,,Transaction Type,Transaction Details,Balance,Category,Merchant Name,Processed On',
+    notes:
+      'Dates like `12 Mar 26` are normalized automatically. `Processed On` maps to settled date, `Transaction Type` maps to subcategory, and `Account Number` maps to the source account id.',
+  },
+  health: {
+    title: 'Health CSV',
+    summary: 'Header names matter more than column order.',
+    required: 'Required: `day` or `date`.',
+    accepted:
+      'Accepted aliases: `active_calories` / `calories`, `resting_heart_rate` / `resting_hr`, `hrv_ms` / `hrv`, `oxygen_saturation_pct` / `oxygen`.',
+    exampleHeaders: 'day,steps,active_calories,resting_heart_rate,hrv_ms,sleep_minutes,workout_minutes,body_weight_kg,recovery_score,oxygen_saturation_pct',
+    notes: 'One row per day. Missing numeric fields are stored as null where supported.',
+  },
+  mood: {
+    title: 'Mood CSV',
+    summary: 'Header names matter more than column order.',
+    required: 'Required: `entry_at` or `timestamp`, plus `mood_score` or `mood`.',
+    accepted: 'Accepted aliases: `energy_score` / `energy`, `stress_score` / `stress`, `note` / `notes`.',
+    exampleHeaders: 'entry_at,mood_score,energy_score,stress_score,tags,note',
+    notes: 'Tags should be pipe-delimited like `focused|creative|calm`.',
+  },
+}
+
 const HASH_TO_ROUTE = {
   '#/execution-center': ROUTES.executionCenter,
   '#/data-management': ROUTES.dataManagement,
+  '#/finance': ROUTES.finance,
 }
 
 const ROUTE_TO_HASH = {
   [ROUTES.dashboard]: '/',
   [ROUTES.executionCenter]: '/execution-center',
   [ROUTES.dataManagement]: '/data-management',
+  [ROUTES.finance]: '/finance',
 }
 
 const getCurrentRoute = () => {
@@ -225,6 +267,7 @@ const getCategoryMeta = (category) =>
 const formatTaskStatusLabel = (status) => `${status.charAt(0).toUpperCase()}${status.slice(1)}`
 const formatCurrency = (value) => `$${Number(value ?? 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const getTrendDirection = (value) => (value >= 0 ? 'up' : 'down')
+const formatDirectionLabel = (direction) => `${direction.charAt(0).toUpperCase()}${direction.slice(1)}`
 
 const useHashRoute = () => {
   const [route, setRoute] = useState(getCurrentRoute)
@@ -537,6 +580,53 @@ const useDataUploads = () => {
     ...uploadState,
     refresh,
   }
+}
+
+const useFinanceTransactions = (active) => {
+  const [financeState, setFinanceState] = useState({
+    items: [],
+    status: 'idle',
+  })
+
+  useEffect(() => {
+    if (!active) {
+      return undefined
+    }
+
+    let isCancelled = false
+
+    const fetchTransactions = async () => {
+      try {
+        const items = await loadFinanceTransactions({ limit: 5000 })
+
+        if (isCancelled) {
+          return
+        }
+
+        setFinanceState({
+          items,
+          status: 'ready',
+        })
+      } catch {
+        if (isCancelled) {
+          return
+        }
+
+        setFinanceState({
+          items: [],
+          status: 'error',
+        })
+      }
+    }
+
+    void fetchTransactions()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [active])
+
+  return financeState
 }
 
 const parseCsvLine = (line) => {
@@ -956,7 +1046,7 @@ const DashboardFooter = ({ onOpenDataManagement }) => (
   </footer>
 )
 
-const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecutionCenter }) => {
+const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecutionCenter, onOpenFinancePage }) => {
   const taskStats = {
     low: tasks.filter((task) => task.effort === 'low').length,
     medium: tasks.filter((task) => task.effort === 'medium').length,
@@ -1039,7 +1129,7 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Card title="Cash Flow" icon={Wallet} tileIndex={2}>
+          <Card title="Cash Flow" icon={Wallet} onAction={onOpenFinancePage} actionLabel="Open Finance" tileIndex={2}>
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <div className="text-sm text-slate-500">Total Balance</div>
@@ -1053,7 +1143,7 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
             <CashFlowChart data={financeSummary.recentDailySpend} />
           </Card>
 
-          <Card title="Allocation" icon={DollarSign} tileIndex={3}>
+          <Card title="Allocation" icon={DollarSign} onAction={onOpenFinancePage} actionLabel="Open Finance" tileIndex={3}>
             <AllocationChart allocation={financeSummary.allocation} />
           </Card>
         </div>
@@ -1149,6 +1239,151 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
   )
 }
 
+const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus, onBackToDashboard }) => {
+  const financeSummary = summary?.finance ?? {
+    totalBalance: 0,
+    dailyBudgetLeft: 0,
+    allocation: [],
+    recentDailySpend: [],
+  }
+
+  const latestPostedAt = transactions.length > 0 ? transactions[0].postedAt : null
+
+  return (
+    <main className="mx-auto max-w-7xl space-y-6">
+      <button
+        type="button"
+        onClick={onBackToDashboard}
+        className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:text-white"
+      >
+        <ArrowLeft size={16} />
+        Back to Dashboard
+      </button>
+
+      <section
+        className="route-card rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur-sm md:p-8"
+        style={{ '--tile-index': 0 }}
+      >
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-3 text-cyan-300">
+                <Wallet size={22} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-100">Finance</h2>
+                <p className="text-sm text-slate-500">Full transaction list from the local database</p>
+              </div>
+            </div>
+
+            <p className="mt-5 max-w-2xl text-sm leading-relaxed text-slate-400">
+              This page reads normalized finance records from the backend API, including every imported transaction currently stored in SQLite.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Balance</div>
+              <div className="mt-2 text-3xl font-bold text-slate-100">{formatCurrency(financeSummary.totalBalance)}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Daily Budget</div>
+              <div className="mt-2 text-3xl font-bold text-emerald-300">{formatCurrency(financeSummary.dailyBudgetLeft)}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Transactions</div>
+              <div className="mt-2 text-3xl font-bold text-slate-100">{transactions.length}</div>
+              <div className="mt-1 text-xs text-slate-500">{latestPostedAt ? `Latest ${formatDateLabel(latestPostedAt)}` : 'No transactions yet'}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <Card title="Allocation" icon={DollarSign} tileIndex={1}>
+          <AllocationChart allocation={financeSummary.allocation} />
+        </Card>
+
+        <section
+          className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+          style={{ '--tile-index': 2 }}
+        >
+          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-100">Transactions</h3>
+              <p className="mt-1 text-sm text-slate-500">Complete imported transaction list currently available through the local API.</p>
+            </div>
+            <div className="text-xs uppercase tracking-wider text-slate-500">
+              {transactionsStatus === 'ready' ? `${transactions.length} rows` : 'Loading feed'}
+            </div>
+          </div>
+
+          {summaryStatus === 'error' || transactionsStatus === 'error' ? (
+            <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              The finance feed is unavailable. Start the local backend to restore the transaction list.
+            </div>
+          ) : transactionsStatus !== 'ready' ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-12 text-center text-sm text-slate-500">
+              Loading transactions...
+            </div>
+          ) : transactions.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-12 text-center text-sm text-slate-500">
+              No transactions are available in the database yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
+                    <th className="pb-3 pr-4 font-semibold">Posted</th>
+                    <th className="pb-3 pr-4 font-semibold">Description</th>
+                    <th className="pb-3 pr-4 font-semibold">Merchant</th>
+                    <th className="pb-3 pr-4 font-semibold">Category</th>
+                    <th className="pb-3 pr-4 font-semibold">Direction</th>
+                    <th className="pb-3 text-right font-semibold">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction.id} className="border-b border-slate-900/80 text-slate-300">
+                      <td className="py-4 pr-4 text-slate-400">{formatDateLabel(transaction.postedAt)}</td>
+                      <td className="py-4 pr-4">
+                        <div className="font-medium text-slate-100">{transaction.description}</div>
+                        <div className="mt-1 text-xs text-slate-500">{transaction.currency}</div>
+                      </td>
+                      <td className="py-4 pr-4 text-slate-400">{transaction.merchant ?? 'Unassigned'}</td>
+                      <td className="py-4 pr-4 text-slate-400">{transaction.category}</td>
+                      <td className="py-4 pr-4">
+                        <span
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${
+                            transaction.direction === 'credit'
+                              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                              : 'border-rose-500/20 bg-rose-500/10 text-rose-300'
+                          }`}
+                        >
+                          {formatDirectionLabel(transaction.direction)}
+                        </span>
+                      </td>
+                      <td
+                        className={`py-4 text-right font-semibold ${
+                          transaction.direction === 'credit' ? 'text-emerald-300' : 'text-slate-100'
+                        }`}
+                      >
+                        {transaction.direction === 'credit' ? '+' : '-'}
+                        {formatCurrency(transaction.amount).replace('$', '')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </section>
+    </main>
+  )
+}
+
 const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile, onBackToDashboard }) => {
   const [selectedType, setSelectedType] = useState(DATA_UPLOAD_TYPES[0].value)
   const [selectedFile, setSelectedFile] = useState(null)
@@ -1156,6 +1391,7 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
   const [submitStatus, setSubmitStatus] = useState('idle')
   const [feedbackMessage, setFeedbackMessage] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const formatGuide = CSV_FORMAT_GUIDE[selectedType]
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -1179,7 +1415,7 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
       const content = await selectedFile.text()
       const dateRange = extractDateRange(selectedType, content)
 
-      await onUploadFile({
+      const result = await onUploadFile({
         domain: selectedType,
         fileName: selectedFile.name,
         content,
@@ -1187,7 +1423,9 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
       })
 
       setSubmitStatus('success')
-      setFeedbackMessage(`${selectedFile.name} stored under ${selectedType}.`)
+      setFeedbackMessage(
+        `${selectedFile.name} imported ${result.importResult.insertedCount} row${result.importResult.insertedCount === 1 ? '' : 's'} into ${selectedType}.`
+      )
       setSelectedFile(null)
       setFileResetKey((current) => current + 1)
     } catch (error) {
@@ -1233,12 +1471,12 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-slate-100">Data Management</h2>
-                <p className="text-sm text-slate-500">Upload and manage local CSV source files</p>
+                <p className="text-sm text-slate-500">Upload, ingest, and manage local CSV source files</p>
               </div>
             </div>
 
             <p className="mt-5 max-w-2xl text-sm leading-relaxed text-slate-400">
-              Files uploaded here are stored in the local <code>data/imports/&lt;type&gt;/</code> folders so the source library can be managed directly from the app.
+              Files uploaded here are stored in the local <code>data/imports/&lt;type&gt;/</code> folders and imported through the same local normalization pipeline used by the CLI.
             </p>
           </div>
 
@@ -1266,7 +1504,7 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
         >
           <div className="mb-6">
             <h3 className="text-lg font-semibold text-slate-100">Upload Source CSV</h3>
-            <p className="mt-1 text-sm text-slate-500">Choose a data type first, then upload a `.csv` file.</p>
+            <p className="mt-1 text-sm text-slate-500">Choose a data type first, then upload a `.csv` file to store and ingest it.</p>
           </div>
 
           <form className="space-y-5" onSubmit={handleSubmit}>
@@ -1317,6 +1555,20 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
               {feedbackMessage}
             </div>
           )}
+
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">{formatGuide.title}</div>
+            <p className="mt-2 text-sm text-slate-400">{formatGuide.summary}</p>
+            <p className="mt-3 text-sm text-slate-300">{formatGuide.required}</p>
+            <p className="mt-2 text-sm text-slate-400">{formatGuide.accepted}</p>
+            <div className="mt-4">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Example headers</div>
+              <pre className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-3 text-xs text-blue-100">
+                <code>{formatGuide.exampleHeaders}</code>
+              </pre>
+            </div>
+            <p className="mt-3 text-sm text-slate-400">{formatGuide.notes}</p>
+          </div>
         </div>
 
         <div
@@ -1614,6 +1866,7 @@ const App = () => {
   const { summary, status: summaryStatus } = useDashboardSummary()
   const { items: tasks, status: taskStatus } = useTasks()
   const { items: uploads, status: uploadsStatus, refresh: refreshUploads } = useDataUploads()
+  const { items: financeTransactions, status: financeTransactionsStatus } = useFinanceTransactions(route === ROUTES.finance)
 
   const weatherDisplay = getWeatherDisplay(weather.code)
   const weatherSummary =
@@ -1627,8 +1880,9 @@ const App = () => {
     : 'pending'
 
   const handleUploadFile = async (payload) => {
-    await uploadDataFile(payload)
+    const result = await uploadDataFile(payload)
     await refreshUploads()
+    return result
   }
 
   const handleDeleteFile = async (id) => {
@@ -1650,6 +1904,14 @@ const App = () => {
         <div key={displayedRoute} className="route-transition__page">
           {displayedRoute === ROUTES.executionCenter ? (
             <ExecutionCenterPage tasks={tasks} taskStatus={taskStatus} onBackToDashboard={() => navigate(ROUTES.dashboard)} />
+          ) : displayedRoute === ROUTES.finance ? (
+            <FinancePage
+              summary={summary}
+              summaryStatus={summaryStatus}
+              transactions={financeTransactions}
+              transactionsStatus={financeTransactionsStatus}
+              onBackToDashboard={() => navigate(ROUTES.dashboard)}
+            />
           ) : displayedRoute === ROUTES.dataManagement ? (
             <DataManagementPage
               uploads={uploads}
@@ -1665,6 +1927,7 @@ const App = () => {
               summary={summary}
               summaryStatus={summaryStatus}
               onOpenExecutionCenter={() => navigate(ROUTES.executionCenter)}
+              onOpenFinancePage={() => navigate(ROUTES.finance)}
             />
           )}
         </div>

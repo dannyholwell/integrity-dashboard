@@ -22,7 +22,7 @@ const toResponseItem = (row) => ({
     fileSizeBytes: row.file_size_bytes,
     storedFileName: row.stored_file_name,
 });
-export const createDataManagementService = ({ db, uploadsRoot }) => {
+export const createDataManagementService = ({ db, uploadsRoot, runImport }) => {
     const listFiles = () => {
         const rows = db
             .prepare(`
@@ -49,6 +49,7 @@ export const createDataManagementService = ({ db, uploadsRoot }) => {
         const domainDirectory = resolve(uploadsRoot, domain);
         const relativePath = `${domain}/${storedFileName}`;
         const absolutePath = resolve(uploadsRoot, relativePath);
+        let uploadId = null;
         await mkdir(domainDirectory, { recursive: true });
         await writeFile(absolutePath, content, 'utf8');
         try {
@@ -65,6 +66,7 @@ export const createDataManagementService = ({ db, uploadsRoot }) => {
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `)
                 .run(domain, fileName.trim(), storedFileName, relativePath, Buffer.byteLength(content, 'utf8'), dateRangeStart ?? null, dateRangeEnd ?? null);
+            uploadId = Number(result.lastInsertRowid);
             const row = db
                 .prepare(`
           SELECT
@@ -80,10 +82,21 @@ export const createDataManagementService = ({ db, uploadsRoot }) => {
           FROM data_upload
           WHERE id = ?
         `)
-                .get(Number(result.lastInsertRowid));
-            return toResponseItem(row);
+                .get(uploadId);
+            const importResult = await runImport({
+                domain,
+                filePath: absolutePath,
+                sourceName: 'upload-ui',
+            });
+            return {
+                item: toResponseItem(row),
+                importResult,
+            };
         }
         catch (error) {
+            if (uploadId !== null) {
+                db.prepare('DELETE FROM data_upload WHERE id = ?').run(uploadId);
+            }
             await unlink(absolutePath).catch(() => undefined);
             throw error;
         }

@@ -56,6 +56,56 @@ Imported files land in raw tables first, then normalization scripts populate cor
 
 The MVP is intentionally local-only. Sensitive personal data stays on the Mac that hosts the app, and no application authentication layer is included in v1.
 
+## CSV Upload Formats
+
+The app now supports CSV upload from the Data Management page. Header names matter more than column order, so another user can prepare their own export as long as the headings match one of the accepted names below.
+
+### Tasks
+
+- Required: `title` or `name`
+- Accepted aliases:
+  `id` / `source_record_id` / `source_id`, `summary` / `notes`, `due_date` / `due`, `source_path` / `path`
+- Valid values:
+  `effort` must be `low`, `medium`, or `high`; `status` must be `ready`, `active`, or `waiting`
+- Example headers:
+  `id,title,category,effort,status,due_date,source_path,summary`
+
+### Finance
+
+- Required:
+  `Date`, `Amount`, and `Transaction Details`
+  or the normalized equivalents `date`, `amount`, and `description`
+- Accepted bank-export headers:
+  `Date`, `Amount`, `Account Number`, `Transaction Type`, `Transaction Details`, `Balance`, `Category`, `Merchant Name`, `Processed On`
+- Supported mapping:
+  `Date` -> posted date
+  `Processed On` -> settled date
+  `Transaction Type` -> subcategory
+  `Transaction Details` -> description
+  `Account Number` -> source account id
+- Date handling:
+  non-ISO dates like `12 Mar 26` are normalized automatically to `2026-03-12`
+- Example headers:
+  `Date,Amount,Account Number,,Transaction Type,Transaction Details,Balance,Category,Merchant Name,Processed On`
+
+### Health
+
+- Required: `day` or `date`
+- Accepted aliases:
+  `active_calories` / `calories`, `resting_heart_rate` / `resting_hr`, `hrv_ms` / `hrv`, `oxygen_saturation_pct` / `oxygen`
+- Example headers:
+  `day,steps,active_calories,resting_heart_rate,hrv_ms,sleep_minutes,workout_minutes,body_weight_kg,recovery_score,oxygen_saturation_pct`
+
+### Mood
+
+- Required: `entry_at` or `timestamp`, plus `mood_score` or `mood`
+- Accepted aliases:
+  `energy_score` / `energy`, `stress_score` / `stress`, `note` / `notes`
+- Example headers:
+  `entry_at,mood_score,energy_score,stress_score,tags,note`
+- Tags:
+  pipe-delimited values such as `focused|creative|calm`
+
 ## Project Structure
 
 - `web/`: Vite + React frontend and local API client modules

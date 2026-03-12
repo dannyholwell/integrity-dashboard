@@ -232,44 +232,6 @@ INSERT OR IGNORE INTO core_task (
   ('task-weekly-reset', 'obsidian', 'weekly-reset', 'Weekly Apartment Reset', 'Clear surfaces, reset laundry, and prep the environment for a lower-friction work week.', 'Home', 'low', 'ready', date('now', 'localtime', '+5 days'), 'Areas/Home/Routines.md'),
   ('task-dichotomy-landing', 'obsidian', 'dichotomy-landing-copy', 'Draft Dichotomy Landing Page Copy', 'Write the narrative arc, offer framing, and primary CTA blocks for the first public page.', 'Creativity', 'high', 'ready', date('now', 'localtime', '+2 days'), 'Projects/Creativity/Dichotomy Launch.md');
 
-INSERT OR IGNORE INTO core_account (
-  id,
-  source_system,
-  source_account_id,
-  name,
-  institution,
-  account_type
-) VALUES
-  ('acct-checking', 'manual', 'checking-main', 'Everyday Account', 'Local Bank', 'transaction'),
-  ('acct-savings', 'manual', 'savings-main', 'Savings Buffer', 'Local Bank', 'savings');
-
-INSERT OR IGNORE INTO core_transaction (
-  id,
-  account_id,
-  source_system,
-  source_record_id,
-  posted_at,
-  description,
-  merchant,
-  category,
-  amount_minor,
-  direction,
-  balance_minor,
-  dedupe_hash
-) VALUES
-  ('txn-salary-001', 'acct-checking', 'manual', 'salary-001', date('now', 'localtime', 'start of month', '+1 day'), 'Salary Payment', 'Employer', 'Income', 360000, 'credit', 1185000, 'salary-001'),
-  ('txn-rent-001', 'acct-checking', 'manual', 'rent-001', date('now', 'localtime', 'start of month', '+2 day'), 'Monthly Rent', 'Landlord', 'Rent', 120000, 'debit', 1065000, 'rent-001'),
-  ('txn-groceries-001', 'acct-checking', 'manual', 'groceries-001', date('now', 'localtime', '-6 day'), 'Groceries', 'Market Hall', 'Groceries', 4500, 'debit', 940500, 'groceries-001'),
-  ('txn-recovery-001', 'acct-checking', 'manual', 'recovery-001', date('now', 'localtime', '-5 day'), 'Recovery Session', 'Physio Clinic', 'Recovery/Health', 2000, 'debit', 938500, 'recovery-001'),
-  ('txn-rent-topup-001', 'acct-checking', 'manual', 'rent-topup-001', date('now', 'localtime', '-4 day'), 'Quarterly Utilities', 'Energy Provider', 'Rent', 12000, 'debit', 926500, 'rent-topup-001'),
-  ('txn-subscriptions-001', 'acct-checking', 'manual', 'subscriptions-001', date('now', 'localtime', '-3 day'), 'Subscriptions', 'Software Bundle', 'Subscriptions', 1500, 'debit', 925000, 'subscriptions-001'),
-  ('txn-discretionary-001', 'acct-checking', 'manual', 'discretionary-001', date('now', 'localtime', '-2 day'), 'Dinner Out', 'Restaurant', 'Discretionary', 3000, 'debit', 922000, 'discretionary-001'),
-  ('txn-groceries-002', 'acct-checking', 'manual', 'groceries-002', date('now', 'localtime', '-1 day'), 'Groceries Top-Up', 'Market Hall', 'Groceries', 8500, 'debit', 913500, 'groceries-002'),
-  ('txn-recovery-002', 'acct-checking', 'manual', 'recovery-002', date('now', 'localtime'), 'Supplement Refill', 'Pharmacy', 'Recovery/Health', 4000, 'debit', 909500, 'recovery-002'),
-  ('txn-rent-annual-001', 'acct-checking', 'manual', 'rent-annual-001', date('now', 'localtime', 'start of month', '+5 day'), 'Furniture Storage', 'Storage Co', 'Rent', 108000, 'debit', 801500, 'rent-annual-001'),
-  ('txn-discretionary-002', 'acct-checking', 'manual', 'discretionary-002', date('now', 'localtime', 'start of month', '+6 day'), 'Books and Supplies', 'Bookshop', 'Discretionary', 22000, 'debit', 779500, 'discretionary-002'),
-  ('txn-savings-snapshot-001', 'acct-savings', 'manual', 'savings-snapshot-001', date('now', 'localtime'), 'Savings Balance Snapshot', 'Local Bank', 'Transfer', 0, 'credit', 465500, 'savings-snapshot-001');
-
 INSERT OR IGNORE INTO core_daily_health (
   day,
   source_system,

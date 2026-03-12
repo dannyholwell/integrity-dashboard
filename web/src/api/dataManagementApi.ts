@@ -6,8 +6,7 @@ export const loadDataUploads = async () => {
 }
 
 export const uploadDataFile = async (upload) => {
-  const payload = await apiPostJson('/data-management/files', upload)
-  return payload.item
+  return apiPostJson('/data-management/files', upload)
 }
 
 export const deleteDataFile = async (id) => {

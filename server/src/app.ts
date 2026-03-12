@@ -1,3 +1,4 @@
+import type { RunImport } from './lib/runImport.js'
 import Fastify from 'fastify'
 import type { AppDatabase } from './db/connection.js'
 import { registerDataManagementRoutes } from './routes/dataManagement.js'
@@ -11,10 +12,11 @@ declare module 'fastify' {
   interface FastifyInstance {
     db: AppDatabase
     uploadsRoot: string
+    runImport: RunImport
   }
 }
 
-export const buildApp = (db: AppDatabase, logLevel: string, uploadsRoot: string) => {
+export const buildApp = (db: AppDatabase, logLevel: string, uploadsRoot: string, runImport: RunImport) => {
   const app = Fastify({
     logger: {
       level: logLevel,
@@ -32,6 +34,7 @@ export const buildApp = (db: AppDatabase, logLevel: string, uploadsRoot: string)
 
   app.decorate('db', db)
   app.decorate('uploadsRoot', uploadsRoot)
+  app.decorate('runImport', runImport)
 
   app.get('/api/healthcheck', async () => ({
     status: 'ok',

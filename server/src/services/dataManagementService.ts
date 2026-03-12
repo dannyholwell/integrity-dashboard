@@ -1,12 +1,14 @@
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { extname, resolve } from 'node:path'
+import type { ImportResult, RunImport } from '../lib/runImport.js'
 import type { AppDatabase } from '../db/connection.js'
 import type { DataUploadInput } from '../schemas/dataManagement.js'
 
 type CreateDataManagementServiceInput = {
   db: AppDatabase
   uploadsRoot: string
+  runImport: RunImport
 }
 
 type DataUploadRow = {
@@ -46,7 +48,7 @@ const toResponseItem = (row: DataUploadRow) => ({
   storedFileName: row.stored_file_name,
 })
 
-export const createDataManagementService = ({ db, uploadsRoot }: CreateDataManagementServiceInput) => {
+export const createDataManagementService = ({ db, uploadsRoot, runImport }: CreateDataManagementServiceInput) => {
   const listFiles = () => {
     const rows = db
       .prepare(`
@@ -76,6 +78,7 @@ export const createDataManagementService = ({ db, uploadsRoot }: CreateDataManag
     const domainDirectory = resolve(uploadsRoot, domain)
     const relativePath = `${domain}/${storedFileName}`
     const absolutePath = resolve(uploadsRoot, relativePath)
+    let uploadId: number | null = null
 
     await mkdir(domainDirectory, { recursive: true })
     await writeFile(absolutePath, content, 'utf8')
@@ -94,6 +97,7 @@ export const createDataManagementService = ({ db, uploadsRoot }: CreateDataManag
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `)
         .run(domain, fileName.trim(), storedFileName, relativePath, Buffer.byteLength(content, 'utf8'), dateRangeStart ?? null, dateRangeEnd ?? null)
+      uploadId = Number(result.lastInsertRowid)
 
       const row = db
         .prepare(`
@@ -110,10 +114,22 @@ export const createDataManagementService = ({ db, uploadsRoot }: CreateDataManag
           FROM data_upload
           WHERE id = ?
         `)
-        .get(Number(result.lastInsertRowid)) as DataUploadRow
+        .get(uploadId) as DataUploadRow
 
-      return toResponseItem(row)
+      const importResult: ImportResult = await runImport({
+        domain,
+        filePath: absolutePath,
+        sourceName: 'upload-ui',
+      })
+
+      return {
+        item: toResponseItem(row),
+        importResult,
+      }
     } catch (error) {
+      if (uploadId !== null) {
+        db.prepare('DELETE FROM data_upload WHERE id = ?').run(uploadId)
+      }
       await unlink(absolutePath).catch(() => undefined)
       throw error
     }

@@ -1,9 +1,14 @@
 import { CATEGORY_BREAKDOWN_QUERY, RECENT_SPEND_QUERY } from '../db/sql/financeQueries.js';
 const CATEGORY_COLORS = {
+    'Cafe & coffee': '#f59e0b',
     Groceries: '#10b981',
+    'Internal transfers': '#64748b',
+    'Other shopping': '#8b5cf6',
     'Recovery/Health': '#3b82f6',
+    'Restaurants & takeaway': '#f97316',
     Rent: '#6366f1',
     Subscriptions: '#f59e0b',
+    'Transfers out': '#06b6d4',
     Discretionary: '#ef4444',
 };
 const toCurrency = (minor) => Number((minor / 100).toFixed(2));
