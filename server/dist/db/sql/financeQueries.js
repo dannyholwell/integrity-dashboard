@@ -18,7 +18,7 @@ export const CATEGORY_BREAKDOWN_QUERY = `
     SUM(amount_minor) AS value_minor
   FROM core_transaction
   WHERE ${SPEND_FILTER_SQL}
-    AND posted_at >= date('now', 'localtime', 'start of month')
+    AND posted_at >= date('now', 'localtime', '-6 days')
   GROUP BY category
   ORDER BY value_minor DESC, name ASC
 `;

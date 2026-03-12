@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -72,6 +72,7 @@ const AXIS_TICK_STYLE = { fill: '#64748b', fontSize: 12 }
 const AREA_ANIMATION_DURATION = 3000
 const BAR_ANIMATION_DURATION = 1500
 const PIE_ANIMATION_DURATION = 2500
+const DAY_IN_MS = 24 * 60 * 60 * 1000
 const FALLBACK_NEXT_EVENT = {
   title: 'Local summary loading',
   location: 'Dashboard backend',
@@ -270,14 +271,39 @@ const formatCurrency = (value) => `$${Number(value ?? 0).toLocaleString('en-AU',
 const getTrendDirection = (value) => (value >= 0 ? 'up' : 'down')
 const formatDirectionLabel = (direction) => `${direction.charAt(0).toUpperCase()}${direction.slice(1)}`
 const DASHBOARD_ALLOCATION_MAX_CATEGORIES = 7
+const FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES = 21
+const FINANCE_CATEGORY_COLORS = {
+  Alcohol: '#ec4899',
+  'Cafe & coffee': '#f59e0b',
+  'Credit card repayments': '#475569',
+  Donations: '#14b8a6',
+  'Electronics & technology': '#7c3aed',
+  Fees: '#ef4444',
+  Groceries: '#10b981',
+  'Internal transfers': '#eab308',
+  Medical: '#22c55e',
+  Media: '#a855f7',
+  'Other shopping': '#8b5cf6',
+  'Parking & tolls': '#f97316',
+  'Personal care': '#fb7185',
+  'Phone & internet': '#3b82f6',
+  'Public transport': '#0ea5e9',
+  'Recovery/Health': '#3b82f6',
+  'Restaurants & takeaway': '#f97316',
+  Rent: '#6366f1',
+  Subscriptions: '#f59e0b',
+  'Transfers out': '#06b6d4',
+  Uncategorised: '#94a3b8',
+  Discretionary: '#ef4444',
+}
 
-const groupAllocationForDashboard = (allocation) => {
-  if (allocation.length <= DASHBOARD_ALLOCATION_MAX_CATEGORIES) {
+const groupAllocation = (allocation, maxCategories, otherColor = '#64748b') => {
+  if (allocation.length <= maxCategories) {
     return allocation
   }
 
-  const primary = allocation.slice(0, DASHBOARD_ALLOCATION_MAX_CATEGORIES - 1)
-  const remainder = allocation.slice(DASHBOARD_ALLOCATION_MAX_CATEGORIES - 1)
+  const primary = allocation.slice(0, maxCategories - 1)
+  const remainder = allocation.slice(maxCategories - 1)
   const otherValue = remainder.reduce((sum, category) => sum + category.value, 0)
 
   return [
@@ -285,9 +311,59 @@ const groupAllocationForDashboard = (allocation) => {
     {
       name: 'Other',
       value: Number(otherValue.toFixed(2)),
-      color: '#64748b',
+      color: otherColor,
     },
   ]
+}
+
+const groupAllocationForDashboard = (allocation) => groupAllocation(allocation, DASHBOARD_ALLOCATION_MAX_CATEGORIES)
+
+const parseDateKey = (value) => new Date(`${value}T00:00:00`)
+
+const getLocalDateKey = (value) => {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+const addDaysToDateKey = (value, days) => {
+  const nextDate = parseDateKey(value)
+  nextDate.setDate(nextDate.getDate() + days)
+  return getLocalDateKey(nextDate)
+}
+
+const clampDateKey = (value, min, max) => {
+  if (value < min) {
+    return min
+  }
+
+  if (value > max) {
+    return max
+  }
+
+  return value
+}
+
+const getDateKeysBetween = (start, end) => {
+  const values = []
+  const currentDate = parseDateKey(start)
+  const endDate = parseDateKey(end)
+
+  while (currentDate <= endDate) {
+    values.push(getLocalDateKey(currentDate))
+    currentDate.setDate(currentDate.getDate() + 1)
+  }
+
+  return values
+}
+
+const getFinancialYearStartDateKey = (value) => {
+  const date = parseDateKey(value)
+  const year = date.getMonth() >= 6 ? date.getFullYear() : date.getFullYear() - 1
+
+  return `${year}-07-01`
 }
 
 const useHashRoute = () => {
@@ -908,7 +984,15 @@ const CashFlowChart = React.memo(function CashFlowChart({ data }) {
 })
 
 const AllocationChart = React.memo(function AllocationChart({ allocation, layout = 'side' }) {
-  const legend = (
+  if (allocation.length === 0) {
+    return (
+      <div className={`flex w-full items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 px-4 text-center text-sm text-slate-500 ${layout === 'stacked' ? 'h-64' : 'h-56'}`}>
+        No spend categories in the selected range.
+      </div>
+    )
+  }
+
+  const stackedLegend = (
     <div className="space-y-2">
       {allocation.map((category) => (
         <div key={category.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 text-xs">
@@ -937,6 +1021,7 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
                   outerRadius={92}
                   paddingAngle={5}
                   dataKey="value"
+                  stroke="none"
                   animationDuration={PIE_ANIMATION_DURATION}
                   isAnimationActive
                 >
@@ -950,34 +1035,44 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
           </div>
         </div>
 
-        <div className="mt-4">{legend}</div>
+        <div className="mt-4">{stackedLegend}</div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-56 w-full items-center">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={allocation}
-            cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={80}
-            paddingAngle={5}
-            dataKey="value"
-            animationDuration={PIE_ANIMATION_DURATION}
-            isAnimationActive
-          >
-            {allocation.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip />
-        </PieChart>
-      </ResponsiveContainer>
-      <div className="min-w-0 flex-1 pl-4">{legend}</div>
+    <div className="flex h-56 w-full items-center gap-4">
+      <div className="h-full min-w-0 flex-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={allocation}
+              cx="50%"
+              cy="50%"
+              innerRadius={60}
+              outerRadius={80}
+              paddingAngle={5}
+              dataKey="value"
+              stroke="none"
+              animationDuration={PIE_ANIMATION_DURATION}
+              isAnimationActive
+            >
+              {allocation.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="w-[8.5rem] shrink-0 space-y-2">
+        {allocation.map((category) => (
+          <div key={category.name} className="flex items-start gap-2 text-xs">
+            <div className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
+            <span className="min-w-0 break-words leading-4 text-slate-400">{category.name}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 })
@@ -1378,7 +1473,6 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
     recentDailySpend: [],
   }
 
-  const latestPostedAt = transactions.length > 0 ? transactions[0].postedAt : null
   const [editingTransaction, setEditingTransaction] = useState(null)
   const [editForm, setEditForm] = useState({
     merchant: '',
@@ -1386,6 +1480,105 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
   })
   const [editStatus, setEditStatus] = useState('idle')
   const [editError, setEditError] = useState('')
+  const [selectedDateRange, setSelectedDateRange] = useState({
+    start: null,
+    end: null,
+  })
+
+  const timelineDates = useMemo(() => {
+    if (transactionsStatus !== 'ready' || transactions.length === 0) {
+      return []
+    }
+
+    const sortedDates = [...new Set(transactions.map((transaction) => transaction.postedAt))].sort((left, right) => left.localeCompare(right))
+    return getDateKeysBetween(sortedDates[0], sortedDates[sortedDates.length - 1])
+  }, [transactions, transactionsStatus])
+
+  const minAvailableDate = timelineDates[0] ?? null
+  const maxAvailableDate = timelineDates[timelineDates.length - 1] ?? null
+  const dateIndexByKey = useMemo(() => new Map(timelineDates.map((value, index) => [value, index])), [timelineDates])
+  const referenceDate = minAvailableDate && maxAvailableDate ? clampDateKey(getLocalDateKey(new Date()), minAvailableDate, maxAvailableDate) : null
+
+  const selectedStartDate =
+    minAvailableDate && maxAvailableDate
+      ? clampDateKey(selectedDateRange.start ?? minAvailableDate, minAvailableDate, maxAvailableDate)
+      : null
+  const selectedEndDate =
+    minAvailableDate && maxAvailableDate
+      ? clampDateKey(selectedDateRange.end ?? maxAvailableDate, minAvailableDate, maxAvailableDate)
+      : null
+  const normalizedStartDate =
+    selectedStartDate && selectedEndDate && selectedStartDate > selectedEndDate ? selectedEndDate : selectedStartDate
+  const normalizedEndDate =
+    selectedStartDate && selectedEndDate && selectedStartDate > selectedEndDate ? selectedStartDate : selectedEndDate
+  const rangeStartIndex = selectedStartDate ? (dateIndexByKey.get(selectedStartDate) ?? 0) : 0
+  const rangeEndIndex = selectedEndDate ? (dateIndexByKey.get(selectedEndDate) ?? Math.max(0, timelineDates.length - 1)) : Math.max(0, timelineDates.length - 1)
+  const rangeDenominator = Math.max(1, timelineDates.length - 1)
+  const rangeStartPercent = (rangeStartIndex / rangeDenominator) * 100
+  const rangeEndPercent = (rangeEndIndex / rangeDenominator) * 100
+  const allocationColorMap = useMemo(
+    () => new Map([...Object.entries(FINANCE_CATEGORY_COLORS), ...financeSummary.allocation.map((category) => [category.name, category.color])]),
+    [financeSummary.allocation]
+  )
+
+  const filteredTransactions =
+    !normalizedStartDate || !normalizedEndDate
+      ? transactions
+      : transactions.filter((transaction) => transaction.postedAt >= normalizedStartDate && transaction.postedAt <= normalizedEndDate)
+
+  const filteredAllocation = (() => {
+    const totals = new Map()
+
+    filteredTransactions.forEach((transaction) => {
+      if (transaction.direction !== 'debit' || transaction.category === 'Internal transfers') {
+        return
+      }
+
+      totals.set(transaction.category, (totals.get(transaction.category) ?? 0) + transaction.amount)
+    })
+
+    return [...totals.entries()]
+      .map(([name, value]) => ({
+        name,
+        value: Number(value.toFixed(2)),
+        color: allocationColorMap.get(name) ?? '#94a3b8',
+      }))
+      .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name))
+  })()
+  const financePageAllocation = groupAllocation(filteredAllocation, FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES)
+
+  const latestPostedAt = transactions.length > 0 ? transactions[0].postedAt : null
+  const activeRangeLabel =
+    normalizedStartDate && normalizedEndDate
+      ? formatDateRangeLabel(normalizedStartDate, normalizedEndDate)
+      : latestPostedAt
+        ? `Latest ${formatDateLabel(latestPostedAt)}`
+        : 'No transactions yet'
+
+  const applySelectedDateRange = (start, end) => {
+    if (!minAvailableDate || !maxAvailableDate) {
+      return
+    }
+
+    const nextStart = clampDateKey(start, minAvailableDate, maxAvailableDate)
+    const nextEnd = clampDateKey(end, minAvailableDate, maxAvailableDate)
+
+    setSelectedDateRange({
+      start: nextStart <= nextEnd ? nextStart : nextEnd,
+      end: nextEnd >= nextStart ? nextEnd : nextStart,
+    })
+  }
+
+  const presetRanges = referenceDate
+    ? [
+        { label: 'Max', start: minAvailableDate ?? referenceDate, end: maxAvailableDate ?? referenceDate },
+        { label: 'Today', start: referenceDate, end: referenceDate },
+        { label: 'Last 7 days', start: addDaysToDateKey(referenceDate, -6), end: referenceDate },
+        { label: 'Last 30 days', start: addDaysToDateKey(referenceDate, -29), end: referenceDate },
+        { label: 'Last 60 days', start: addDaysToDateKey(referenceDate, -59), end: referenceDate },
+        { label: 'Financial year', start: getFinancialYearStartDateKey(referenceDate), end: referenceDate },
+      ]
+    : []
 
   const openEditModal = (transaction) => {
     setEditingTransaction(transaction)
@@ -1468,29 +1661,148 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
             </div>
             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Transactions</div>
-              <div className="mt-2 text-3xl font-bold text-slate-100">{transactions.length}</div>
-              <div className="mt-1 text-xs text-slate-500">{latestPostedAt ? `Latest ${formatDateLabel(latestPostedAt)}` : 'No transactions yet'}</div>
+              <div className="mt-2 text-3xl font-bold text-slate-100">{filteredTransactions.length}</div>
+              <div className="mt-1 text-xs text-slate-500">{activeRangeLabel}</div>
             </div>
           </div>
         </div>
       </section>
 
+      <section
+        className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+        style={{ '--tile-index': 1 }}
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <h3 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
+                <Calendar size={18} className="text-blue-400" />
+                Date Range
+              </h3>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {presetRanges.map((preset) => {
+                const isActive = preset.start === selectedStartDate && preset.end === selectedEndDate
+
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => applySelectedDateRange(preset.start, preset.end)}
+                    className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
+                      isActive
+                        ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                        : 'border-slate-700 bg-slate-950/70 text-slate-300 hover:border-slate-600 hover:text-slate-100'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {timelineDates.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-10 text-center text-sm text-slate-500">
+              Upload finance data to activate the date timeline.
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Detected range</div>
+                <div className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300">
+                  {activeRangeLabel}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="relative h-8">
+                  <div className="absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-slate-800" />
+                  <div
+                    className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-blue-500"
+                    style={{
+                      left: `${rangeStartPercent}%`,
+                      width: `${Math.max(0, rangeEndPercent - rangeStartPercent)}%`,
+                    }}
+                  />
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, timelineDates.length - 1)}
+                    step={1}
+                    value={rangeStartIndex}
+                    onChange={(event) => {
+                      const nextStart = timelineDates[Number(event.target.value)]
+                      applySelectedDateRange(nextStart, selectedEndDate ?? nextStart)
+                    }}
+                    className="finance-range-slider"
+                    aria-label="Start date"
+                  />
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, timelineDates.length - 1)}
+                    step={1}
+                    value={rangeEndIndex}
+                    onChange={(event) => {
+                      const nextEnd = timelineDates[Number(event.target.value)]
+                      applySelectedDateRange(selectedStartDate ?? nextEnd, nextEnd)
+                    }}
+                    className="finance-range-slider"
+                    aria-label="End date"
+                  />
+                </div>
+
+                <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+                  <span>{formatDateLabel(minAvailableDate)}</span>
+                  <span>{formatDateLabel(maxAvailableDate)}</span>
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2.5">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Start</div>
+                    <div className="mt-1 text-sm font-medium text-slate-200">{formatDateLabel(selectedStartDate)}</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2.5">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">End</div>
+                    <div className="mt-1 text-sm font-medium text-slate-200">{formatDateLabel(selectedEndDate)}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <Card title="Allocation" icon={DollarSign} tileIndex={1}>
-          <AllocationChart allocation={financeSummary.allocation} layout="stacked" />
-        </Card>
+        <section
+          className="route-card flex h-full flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+          style={{ '--tile-index': 2 }}
+        >
+          <div className="mb-4">
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
+              <DollarSign size={18} className="text-blue-400" />
+              Allocation
+            </h3>
+          </div>
+
+          <div className="flex flex-1 flex-col">
+            <AllocationChart allocation={financePageAllocation} layout="stacked" />
+          </div>
+        </section>
 
         <section
           className="route-card flex max-h-[70vh] min-h-[28rem] flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
-          style={{ '--tile-index': 2 }}
+          style={{ '--tile-index': 3 }}
         >
           <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-slate-100">Transactions</h3>
-              <p className="mt-1 text-sm text-slate-500">Complete imported transaction list currently available through the local API.</p>
+              <p className="mt-1 text-sm text-slate-500">Filtered transaction list for the selected date range.</p>
             </div>
             <div className="text-xs uppercase tracking-wider text-slate-500">
-              {transactionsStatus === 'ready' ? `${transactions.length} rows` : 'Loading feed'}
+              {transactionsStatus === 'ready' ? `${filteredTransactions.length} rows` : 'Loading feed'}
             </div>
           </div>
 
@@ -1502,9 +1814,9 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-12 text-center text-sm text-slate-500">
               Loading transactions...
             </div>
-          ) : transactions.length === 0 ? (
+          ) : filteredTransactions.length === 0 ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-12 text-center text-sm text-slate-500">
-              No transactions are available in the database yet.
+              No transactions fall inside the selected date range.
             </div>
           ) : (
             <>
@@ -1516,13 +1828,13 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                   <div className="pr-4">Category</div>
                   <div className="pr-4">Direction</div>
                   <div className="text-right">Amount</div>
-                  <div className="pl-4 text-right">Edit</div>
+                  <div className="pr-1 text-right">Edit</div>
                 </div>
               </div>
 
               <div className="finance-transactions-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
                 <div className="text-sm">
-                  {transactions.map((transaction) => (
+                  {filteredTransactions.map((transaction) => (
                     <div key={transaction.id} className="finance-transactions-columns border-b border-slate-900/80 py-4 text-slate-300">
                       <div className="pr-4 text-slate-400">{formatDateLabel(transaction.postedAt)}</div>
                       <div className="pr-4">
@@ -1550,13 +1862,13 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                         {transaction.direction === 'credit' ? '+' : '-'}
                         {formatCurrency(transaction.amount).replace('$', '')}
                       </div>
-                      <div className="pl-4 text-right">
+                      <div className="flex items-start justify-end pr-1 pt-1 text-right">
                         <button
                           type="button"
                           onClick={() => openEditModal(transaction)}
                           aria-label={`Edit ${transaction.description}`}
                           title={`Edit ${transaction.description}`}
-                          className="inline-flex h-9 w-9 items-center justify-center text-blue-400 transition-colors hover:text-blue-300"
+                          className="inline-flex items-start justify-end p-0 text-blue-400 transition-colors hover:text-blue-300"
                         >
                           <Pencil size={15} />
                         </button>
