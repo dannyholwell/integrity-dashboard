@@ -305,6 +305,7 @@ const groupAllocation = (allocation, maxCategories, otherColor = '#64748b') => {
   const primary = allocation.slice(0, maxCategories - 1)
   const remainder = allocation.slice(maxCategories - 1)
   const otherValue = remainder.reduce((sum, category) => sum + category.value, 0)
+  const otherFilterCategories = remainder.flatMap((category) => category.filterCategories ?? [category.name])
 
   return [
     ...primary,
@@ -312,6 +313,7 @@ const groupAllocation = (allocation, maxCategories, otherColor = '#64748b') => {
       name: 'Other',
       value: Number(otherValue.toFixed(2)),
       color: otherColor,
+      filterCategories: otherFilterCategories,
     },
   ]
 }
@@ -983,7 +985,7 @@ const CashFlowChart = React.memo(function CashFlowChart({ data }) {
   )
 })
 
-const AllocationChart = React.memo(function AllocationChart({ allocation, layout = 'side' }) {
+const AllocationChart = React.memo(function AllocationChart({ allocation, layout = 'side', selectedCategory = null, onCategorySelect = null }) {
   if (allocation.length === 0) {
     return (
       <div className={`flex w-full items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 px-4 text-center text-sm text-slate-500 ${layout === 'stacked' ? 'h-64' : 'h-56'}`}>
@@ -992,16 +994,34 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
     )
   }
 
+  const isInteractive = typeof onCategorySelect === 'function'
+  const hasSelectedCategory = selectedCategory !== null
+
   const stackedLegend = (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {allocation.map((category) => (
-        <div key={category.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 text-xs">
+        <button
+          key={category.name}
+          type="button"
+          onClick={isInteractive ? () => onCategorySelect(category) : undefined}
+          className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 rounded-xl px-2 py-1 text-left text-xs transition-colors ${
+            isInteractive
+              ? selectedCategory === category.name
+                ? 'bg-blue-500/10 text-slate-100'
+                : 'hover:bg-slate-800/70'
+              : 'cursor-default'
+          }`}
+        >
           <div className="flex min-w-0 items-start gap-2">
             <div className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
-            <span className="min-w-0 break-words text-slate-400">{category.name}</span>
+            <span className={`${selectedCategory === category.name ? 'text-slate-200' : 'text-slate-400'} min-w-0 break-words`}>
+              {category.name}
+            </span>
           </div>
-          <span className="whitespace-nowrap text-right font-medium text-slate-300">{formatCurrency(category.value)}</span>
-        </div>
+          <span className={`whitespace-nowrap text-right font-medium ${selectedCategory === category.name ? 'text-slate-100' : 'text-slate-300'}`}>
+            {formatCurrency(category.value)}
+          </span>
+        </button>
       ))}
     </div>
   )
@@ -1026,7 +1046,13 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
                   isAnimationActive
                 >
                   {allocation.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={entry.color}
+                      fillOpacity={!hasSelectedCategory || selectedCategory === entry.name ? 1 : 0.28}
+                      cursor={isInteractive ? 'pointer' : 'default'}
+                      onClick={isInteractive ? () => onCategorySelect(entry) : undefined}
+                    />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -1046,22 +1072,26 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
-              data={allocation}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={80}
-              paddingAngle={5}
-              dataKey="value"
-              stroke="none"
-              animationDuration={PIE_ANIMATION_DURATION}
-              isAnimationActive
-            >
-              {allocation.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip />
+            data={allocation}
+            cx="50%"
+            cy="50%"
+            innerRadius={60}
+            outerRadius={80}
+            paddingAngle={5}
+            dataKey="value"
+            stroke="none"
+            animationDuration={PIE_ANIMATION_DURATION}
+            isAnimationActive
+          >
+            {allocation.map((entry, index) => (
+              <Cell
+                key={`cell-${index}`}
+                fill={entry.color}
+                fillOpacity={!hasSelectedCategory || selectedCategory === entry.name ? 1 : 0.28}
+              />
+            ))}
+          </Pie>
+          <Tooltip />
           </PieChart>
         </ResponsiveContainer>
       </div>
@@ -1480,6 +1510,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
   })
   const [editStatus, setEditStatus] = useState('idle')
   const [editError, setEditError] = useState('')
+  const [selectedAllocationCategory, setSelectedAllocationCategory] = useState(null)
   const [selectedDateRange, setSelectedDateRange] = useState({
     start: null,
     end: null,
@@ -1542,10 +1573,16 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
         name,
         value: Number(value.toFixed(2)),
         color: allocationColorMap.get(name) ?? '#94a3b8',
+        filterCategories: [name],
       }))
       .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name))
   })()
   const financePageAllocation = groupAllocation(filteredAllocation, FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES)
+  const activeAllocationFilter = financePageAllocation.find((category) => category.name === selectedAllocationCategory) ?? null
+  const categoryFilteredTransactions =
+    !activeAllocationFilter
+      ? filteredTransactions
+      : filteredTransactions.filter((transaction) => (activeAllocationFilter.filterCategories ?? [activeAllocationFilter.name]).includes(transaction.category))
 
   const latestPostedAt = transactions.length > 0 ? transactions[0].postedAt : null
   const activeRangeLabel =
@@ -1569,14 +1606,18 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
     })
   }
 
+  const handleAllocationCategorySelect = (category) => {
+    setSelectedAllocationCategory((current) => (current === category.name ? null : category.name))
+  }
+
   const presetRanges = referenceDate
     ? [
-        { label: 'Max', start: minAvailableDate ?? referenceDate, end: maxAvailableDate ?? referenceDate },
         { label: 'Today', start: referenceDate, end: referenceDate },
         { label: 'Last 7 days', start: addDaysToDateKey(referenceDate, -6), end: referenceDate },
         { label: 'Last 30 days', start: addDaysToDateKey(referenceDate, -29), end: referenceDate },
         { label: 'Last 60 days', start: addDaysToDateKey(referenceDate, -59), end: referenceDate },
         { label: 'Financial year', start: getFinancialYearStartDateKey(referenceDate), end: referenceDate },
+        { label: 'Max', start: minAvailableDate ?? referenceDate, end: maxAvailableDate ?? referenceDate },
       ]
     : []
 
@@ -1661,7 +1702,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
             </div>
             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Transactions</div>
-              <div className="mt-2 text-3xl font-bold text-slate-100">{filteredTransactions.length}</div>
+              <div className="mt-2 text-3xl font-bold text-slate-100">{categoryFilteredTransactions.length}</div>
               <div className="mt-1 text-xs text-slate-500">{activeRangeLabel}</div>
             </div>
           </div>
@@ -1788,7 +1829,12 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
           </div>
 
           <div className="flex flex-1 flex-col">
-            <AllocationChart allocation={financePageAllocation} layout="stacked" />
+            <AllocationChart
+              allocation={financePageAllocation}
+              layout="stacked"
+              selectedCategory={activeAllocationFilter?.name ?? null}
+              onCategorySelect={handleAllocationCategorySelect}
+            />
           </div>
         </section>
 
@@ -1799,10 +1845,23 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
           <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-slate-100">Transactions</h3>
-              <p className="mt-1 text-sm text-slate-500">Filtered transaction list for the selected date range.</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Filtered transaction list for the selected date range{activeAllocationFilter ? ` and ${activeAllocationFilter.name}` : ''}.
+              </p>
             </div>
-            <div className="text-xs uppercase tracking-wider text-slate-500">
-              {transactionsStatus === 'ready' ? `${filteredTransactions.length} rows` : 'Loading feed'}
+            <div className="flex flex-col items-end gap-2">
+              {activeAllocationFilter && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedAllocationCategory(null)}
+                  className="rounded-full border border-blue-400/30 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200 transition-colors hover:border-blue-300/40 hover:bg-blue-500/15"
+                >
+                  {activeAllocationFilter.name}
+                </button>
+              )}
+              <div className="text-xs uppercase tracking-wider text-slate-500">
+                {transactionsStatus === 'ready' ? `${categoryFilteredTransactions.length} rows` : 'Loading feed'}
+              </div>
             </div>
           </div>
 
@@ -1814,9 +1873,9 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-12 text-center text-sm text-slate-500">
               Loading transactions...
             </div>
-          ) : filteredTransactions.length === 0 ? (
+          ) : categoryFilteredTransactions.length === 0 ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-12 text-center text-sm text-slate-500">
-              No transactions fall inside the selected date range.
+              No transactions fall inside the selected filters.
             </div>
           ) : (
             <>
@@ -1834,7 +1893,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
 
               <div className="finance-transactions-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
                 <div className="text-sm">
-                  {filteredTransactions.map((transaction) => (
+                  {categoryFilteredTransactions.map((transaction) => (
                     <div key={transaction.id} className="finance-transactions-columns border-b border-slate-900/80 py-4 text-slate-300">
                       <div className="pr-4 text-slate-400">{formatDateLabel(transaction.postedAt)}</div>
                       <div className="pr-4">
