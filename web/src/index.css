@@ -22,11 +22,11 @@ body {
 }
 
 .route-transition__page {
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
 }
 
 .route-card {
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
 }
 
 .route-transition--exiting .route-transition__page {
@@ -51,12 +51,10 @@ body {
 @keyframes route-page-exit {
   from {
     opacity: 1;
-    filter: blur(0);
   }
 
   to {
     opacity: 0;
-    filter: blur(6px);
     transform: translateY(14px);
   }
 }
@@ -74,13 +72,11 @@ body {
 @keyframes route-card-exit {
   from {
     opacity: 1;
-    filter: blur(0);
     transform: translate3d(0, 0, 0) scale(1);
   }
 
   to {
     opacity: 0;
-    filter: blur(10px);
     transform: translate3d(0, 26px, 0) scale(0.985);
   }
 }
@@ -88,7 +84,6 @@ body {
 @keyframes route-card-enter {
   from {
     opacity: 0;
-    filter: blur(10px);
     transform: translate3d(0, 22px, 0) scale(0.985);
   }
 
@@ -98,7 +93,6 @@ body {
 
   to {
     opacity: 1;
-    filter: blur(0);
     transform: translate3d(0, 0, 0) scale(1);
   }
 }
@@ -107,7 +101,6 @@ body {
   .route-transition__page,
   .route-card {
     animation: none !important;
-    filter: none !important;
     transform: none !important;
   }
 }

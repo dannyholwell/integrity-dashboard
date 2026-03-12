@@ -28,14 +28,16 @@ import {
   CloudSun,
   Clock,
   Coffee,
-  DollarSign,
-  MapPin,
-  RefreshCcw,
-  Sun,
-  TrendingUp,
-  Wallet,
-  Zap,
-} from 'lucide-react'
+    DollarSign,
+    MapPin,
+    RefreshCcw,
+    Upload,
+    Sun,
+    TrendingUp,
+    Wallet,
+    Zap,
+  } from 'lucide-react'
+import { deleteDataFile, loadDataUploads, uploadDataFile } from './api/dataManagementApi'
 import { loadDashboardSummary } from './api/dashboardApi'
 import { loadTasks } from './data/taskSource'
 
@@ -47,6 +49,7 @@ const MELBOURNE_COORDS = {
 const ROUTES = {
   dashboard: 'dashboard',
   executionCenter: 'execution-center',
+  dataManagement: 'data-management',
 }
 
 const ROUTE_TRANSITION_MS = {
@@ -149,12 +152,30 @@ const TASK_STATUS_META = {
   waiting: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
 }
 
+const DATA_UPLOAD_TYPES = [
+  { value: 'tasks', label: 'Tasks' },
+  { value: 'finance', label: 'Finance' },
+  { value: 'health', label: 'Health' },
+  { value: 'mood', label: 'Mood' },
+]
+
+const HASH_TO_ROUTE = {
+  '#/execution-center': ROUTES.executionCenter,
+  '#/data-management': ROUTES.dataManagement,
+}
+
+const ROUTE_TO_HASH = {
+  [ROUTES.dashboard]: '/',
+  [ROUTES.executionCenter]: '/execution-center',
+  [ROUTES.dataManagement]: '/data-management',
+}
+
 const getCurrentRoute = () => {
   if (typeof window === 'undefined') {
     return ROUTES.dashboard
   }
 
-  return window.location.hash === '#/execution-center' ? ROUTES.executionCenter : ROUTES.dashboard
+  return HASH_TO_ROUTE[window.location.hash] ?? ROUTES.dashboard
 }
 
 const getWeatherDisplay = (code) => {
@@ -220,7 +241,7 @@ const useHashRoute = () => {
   }, [])
 
   const navigate = (nextRoute) => {
-    window.location.hash = nextRoute === ROUTES.executionCenter ? '/execution-center' : '/'
+    window.location.hash = ROUTE_TO_HASH[nextRoute] ?? '/'
   }
 
   return { route, navigate }
@@ -451,6 +472,207 @@ const useDashboardSummary = () => {
   return dashboardState
 }
 
+const useDataUploads = () => {
+  const [uploadState, setUploadState] = useState({
+    items: [],
+    status: 'loading',
+  })
+
+  const refresh = async () => {
+    setUploadState((current) => ({
+      ...current,
+      status: 'loading',
+    }))
+
+    try {
+      const items = await loadDataUploads()
+      setUploadState({
+        items,
+        status: 'ready',
+      })
+    } catch {
+      setUploadState({
+        items: [],
+        status: 'error',
+      })
+    }
+  }
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const fetchUploads = async () => {
+      try {
+        const items = await loadDataUploads()
+
+        if (isCancelled) {
+          return
+        }
+
+        setUploadState({
+          items,
+          status: 'ready',
+        })
+      } catch {
+        if (isCancelled) {
+          return
+        }
+
+        setUploadState({
+          items: [],
+          status: 'error',
+        })
+      }
+    }
+
+    void fetchUploads()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
+  return {
+    ...uploadState,
+    refresh,
+  }
+}
+
+const parseCsvLine = (line) => {
+  const values = []
+  let currentValue = ''
+  let inQuotes = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]
+    const nextCharacter = line[index + 1]
+
+    if (character === '"') {
+      if (inQuotes && nextCharacter === '"') {
+        currentValue += '"'
+        index += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (character === ',' && !inQuotes) {
+      values.push(currentValue)
+      currentValue = ''
+      continue
+    }
+
+    currentValue += character
+  }
+
+  values.push(currentValue)
+  return values
+}
+
+const parseCsvRecords = (text) => {
+  const lines = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+
+  if (lines.length < 2) {
+    return []
+  }
+
+  const headers = parseCsvLine(lines[0]).map((header) => header.trim())
+
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line)
+    return headers.reduce((record, header, index) => {
+      record[header] = (values[index] ?? '').trim()
+      return record
+    }, {})
+  })
+}
+
+const normalizeDateValue = (value) => {
+  if (!value) {
+    return null
+  }
+
+  const isoMatch = value.match(/\d{4}-\d{2}-\d{2}/)
+  if (isoMatch) {
+    return isoMatch[0]
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+
+  return parsed.toISOString().slice(0, 10)
+}
+
+const extractDateRange = (domain, content) => {
+  const records = parseCsvRecords(content)
+  const dateKeys = {
+    tasks: ['due_date', 'due'],
+    finance: ['posted_at', 'date'],
+    health: ['day', 'date'],
+    mood: ['entry_at', 'timestamp'],
+  }
+
+  const dates = records
+    .map((record) => {
+      const key = dateKeys[domain].find((candidate) => record[candidate])
+      return normalizeDateValue(key ? record[key] : '')
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right))
+
+  return {
+    dateRangeStart: dates[0] ?? null,
+    dateRangeEnd: dates[dates.length - 1] ?? null,
+  }
+}
+
+const formatDateTime = (value) =>
+  new Date(value).toLocaleString('en-AU', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+const formatDateLabel = (value) =>
+  new Date(`${value}T00:00:00`).toLocaleDateString('en-AU', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+
+const formatDateRangeLabel = (start, end) => {
+  if (!start && !end) {
+    return 'No dates detected'
+  }
+
+  if (start && end && start !== end) {
+    return `${formatDateLabel(start)} to ${formatDateLabel(end)}`
+  }
+
+  return formatDateLabel(start ?? end)
+}
+
+const formatFileSize = (value) => {
+  if (value < 1024) {
+    return `${value} B`
+  }
+
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`
+  }
+
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
 const VitalityChart = React.memo(function VitalityChart({ data }) {
   return (
     <div className="h-48 w-full">
@@ -670,7 +892,7 @@ const TaskDetailCard = ({ task, tileIndex = 0 }) => {
   )
 }
 
-const DashboardHeader = ({ weatherDisplay, weatherSummary, updatedLabel }) => {
+const DashboardHeader = ({ weatherDisplay, weatherSummary, updatedLabel, onOpenDataManagement, dataManagementActive }) => {
   const WeatherIcon = weatherDisplay.icon
 
   return (
@@ -682,34 +904,50 @@ const DashboardHeader = ({ weatherDisplay, weatherSummary, updatedLabel }) => {
         <p className="mt-1 text-slate-500">Holistic Overview for Danny Holwell</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-800 bg-slate-900/80 p-3 text-sm">
-        <div className="flex items-center gap-2 border-r border-slate-800 px-3">
-          <MapPin size={16} className="text-rose-400" />
-          <span>Melbourne, VIC</span>
-        </div>
-        <div className="flex items-center gap-2 border-r border-slate-800 px-3">
-          <WeatherIcon size={16} className={weatherDisplay.iconClassName} />
-          <span>{weatherSummary}</span>
-        </div>
-        <div className="flex items-center gap-2 px-3">
-          <RefreshCcw size={16} className="text-blue-400" />
-          <span>Updated {updatedLabel}</span>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenDataManagement}
+          aria-label="Open Data Management"
+          title="Data Management"
+          className={`flex h-12 w-12 items-center justify-center rounded-xl border transition-colors ${
+            dataManagementActive
+              ? 'border-blue-400/40 bg-blue-500/20 text-blue-100'
+              : 'border-blue-500/20 bg-blue-500/10 text-blue-300 hover:border-blue-400/40 hover:bg-blue-500/15 hover:text-blue-200'
+          }`}
+        >
+          <Upload size={16} />
+        </button>
+
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-800 bg-slate-900/80 p-3 text-sm">
+          <div className="flex items-center gap-2 border-r border-slate-800 px-3">
+            <MapPin size={16} className="text-rose-400" />
+            <span>Melbourne, VIC</span>
+          </div>
+          <div className="flex items-center gap-2 border-r border-slate-800 px-3">
+            <WeatherIcon size={16} className={weatherDisplay.iconClassName} />
+            <span>{weatherSummary}</span>
+          </div>
+          <div className="flex items-center gap-2 px-3">
+            <RefreshCcw size={16} className="text-blue-400" />
+            <span>Updated {updatedLabel}</span>
+          </div>
         </div>
       </div>
     </header>
   )
 }
 
-const DashboardFooter = () => (
+const DashboardFooter = ({ onOpenDataManagement }) => (
   <footer className="mx-auto mt-12 flex max-w-7xl items-center justify-between border-t border-slate-900 pt-8 text-xs text-slate-600">
     <div>System version 2.7.0-local-first</div>
     <div className="flex gap-4">
       <a href="#" className="hover:text-slate-400">
         Settings
       </a>
-      <a href="#" className="hover:text-slate-400">
-        Data Sources
-      </a>
+      <button type="button" onClick={onOpenDataManagement} className="hover:text-slate-400">
+        Data Management
+      </button>
       <a href="#" className="hover:text-slate-400">
         Export Integrity Report
       </a>
@@ -906,6 +1144,254 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
           </div>
         </Card>
       </div>
+    </main>
+  )
+}
+
+const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile, onBackToDashboard }) => {
+  const [selectedType, setSelectedType] = useState(DATA_UPLOAD_TYPES[0].value)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [fileResetKey, setFileResetKey] = useState(0)
+  const [submitStatus, setSubmitStatus] = useState('idle')
+  const [feedbackMessage, setFeedbackMessage] = useState('')
+  const [deletingId, setDeletingId] = useState(null)
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+
+    if (!selectedFile) {
+      setSubmitStatus('error')
+      setFeedbackMessage('Choose a CSV file before uploading.')
+      return
+    }
+
+    if (!selectedFile.name.toLowerCase().endsWith('.csv')) {
+      setSubmitStatus('error')
+      setFeedbackMessage('Only .csv files are supported.')
+      return
+    }
+
+    setSubmitStatus('uploading')
+    setFeedbackMessage('')
+
+    try {
+      const content = await selectedFile.text()
+      const dateRange = extractDateRange(selectedType, content)
+
+      await onUploadFile({
+        domain: selectedType,
+        fileName: selectedFile.name,
+        content,
+        ...dateRange,
+      })
+
+      setSubmitStatus('success')
+      setFeedbackMessage(`${selectedFile.name} stored under ${selectedType}.`)
+      setSelectedFile(null)
+      setFileResetKey((current) => current + 1)
+    } catch (error) {
+      setSubmitStatus('error')
+      setFeedbackMessage(error instanceof Error ? error.message : 'Upload failed')
+    }
+  }
+
+  const handleDelete = async (id) => {
+    setDeletingId(id)
+    setFeedbackMessage('')
+
+    try {
+      await onDeleteFile(id)
+    } catch (error) {
+      setSubmitStatus('error')
+      setFeedbackMessage(error instanceof Error ? error.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  return (
+    <main className="mx-auto max-w-7xl space-y-6">
+      <button
+        type="button"
+        onClick={onBackToDashboard}
+        className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:text-white"
+      >
+        <ArrowLeft size={16} />
+        Back to Dashboard
+      </button>
+
+      <section
+        className="route-card rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur-sm md:p-8"
+        style={{ '--tile-index': 0 }}
+      >
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-blue-300">
+                <Upload size={22} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-100">Data Management</h2>
+                <p className="text-sm text-slate-500">Upload and manage local CSV source files</p>
+              </div>
+            </div>
+
+            <p className="mt-5 max-w-2xl text-sm leading-relaxed text-slate-400">
+              Files uploaded here are stored in the local <code>data/imports/&lt;type&gt;/</code> folders so the source library can be managed directly from the app.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tracked Files</div>
+              <div className="mt-2 text-3xl font-bold text-slate-100">{uploads.length}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Latest Upload</div>
+              <div className="mt-2 text-sm font-semibold text-slate-200">{uploads[0] ? formatDateTime(uploads[0].uploadedAt) : 'None yet'}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Storage Mode</div>
+              <div className="mt-2 text-sm font-semibold text-blue-300">Local first</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div
+          className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+          style={{ '--tile-index': 1 }}
+        >
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-slate-100">Upload Source CSV</h3>
+            <p className="mt-1 text-sm text-slate-500">Choose a data type first, then upload a `.csv` file.</p>
+          </div>
+
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <label className="block">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">Upload type</span>
+              <select
+                value={selectedType}
+                onChange={(event) => setSelectedType(event.target.value)}
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition-colors focus:border-blue-400"
+              >
+                {DATA_UPLOAD_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">CSV file</span>
+              <input
+                key={fileResetKey}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                className="block w-full rounded-2xl border border-dashed border-slate-700 bg-slate-950/80 px-4 py-4 text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-blue-500/15 file:px-4 file:py-2 file:font-semibold file:text-blue-200 hover:border-slate-600"
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={submitStatus === 'uploading'}
+              className="inline-flex items-center gap-2 rounded-full bg-blue-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-blue-500/50"
+            >
+              <Upload size={16} />
+              {submitStatus === 'uploading' ? 'Uploading...' : 'Upload CSV'}
+            </button>
+          </form>
+
+          {feedbackMessage && (
+            <div
+              className={`mt-5 rounded-2xl border px-4 py-3 text-sm ${
+                submitStatus === 'error'
+                  ? 'border-rose-500/20 bg-rose-500/10 text-rose-200'
+                  : 'border-blue-500/20 bg-blue-500/10 text-blue-100'
+              }`}
+            >
+              {feedbackMessage}
+            </div>
+          )}
+        </div>
+
+        <div
+          className="route-card rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+          style={{ '--tile-index': 2 }}
+        >
+          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-100">Uploaded Files</h3>
+              <p className="mt-1 text-sm text-slate-500">Previously uploaded CSV files tracked by the local app.</p>
+            </div>
+            <div className="text-xs uppercase tracking-wider text-slate-500">
+              {uploadsStatus === 'loading' ? 'Loading files...' : `${uploads.length} file${uploads.length === 1 ? '' : 's'}`}
+            </div>
+          </div>
+
+          {uploadsStatus === 'error' && (
+            <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              Uploaded files could not be loaded from the local API.
+            </div>
+          )}
+
+          {uploadsStatus !== 'error' && (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
+                    <th className="pb-3 pr-4 font-semibold">File name</th>
+                    <th className="pb-3 pr-4 font-semibold">Data type</th>
+                    <th className="pb-3 pr-4 font-semibold">Date uploaded</th>
+                    <th className="pb-3 pr-4 font-semibold">Date range</th>
+                    <th className="pb-3 pr-4 font-semibold">Size</th>
+                    <th className="pb-3 text-right font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploads.length > 0 ? (
+                    uploads.map((upload) => (
+                      <tr key={upload.id} className="border-b border-slate-900/80 text-slate-300">
+                        <td className="py-4 pr-4">
+                          <div className="font-medium text-slate-100">{upload.fileName}</div>
+                          <div className="mt-1 text-xs text-slate-500">{upload.storedFileName}</div>
+                        </td>
+                        <td className="py-4 pr-4">
+                          <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-200">
+                            {upload.dataType}
+                          </span>
+                        </td>
+                        <td className="py-4 pr-4 text-slate-400">{formatDateTime(upload.uploadedAt)}</td>
+                        <td className="py-4 pr-4 text-slate-400">{formatDateRangeLabel(upload.dateRangeStart, upload.dateRangeEnd)}</td>
+                        <td className="py-4 pr-4 text-slate-400">{formatFileSize(upload.fileSizeBytes)}</td>
+                        <td className="py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(upload.id)}
+                            disabled={deletingId === upload.id}
+                            className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-200 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {deletingId === upload.id ? 'Deleting...' : 'Delete file'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                        {uploadsStatus === 'loading' ? 'Loading uploads...' : 'No CSV files have been uploaded yet.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
     </main>
   )
 }
@@ -1124,6 +1610,7 @@ const App = () => {
   const weather = useWeather()
   const { summary, status: summaryStatus } = useDashboardSummary()
   const { items: tasks, status: taskStatus } = useTasks()
+  const { items: uploads, status: uploadsStatus, refresh: refreshUploads } = useDataUploads()
 
   const weatherDisplay = getWeatherDisplay(weather.code)
   const weatherSummary =
@@ -1136,14 +1623,38 @@ const App = () => {
     ? new Date(weather.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : 'pending'
 
+  const handleUploadFile = async (payload) => {
+    await uploadDataFile(payload)
+    await refreshUploads()
+  }
+
+  const handleDeleteFile = async (id) => {
+    await deleteDataFile(id)
+    await refreshUploads()
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 p-4 font-sans text-slate-200 selection:bg-blue-500/30 md:p-8">
-      <DashboardHeader weatherDisplay={weatherDisplay} weatherSummary={weatherSummary} updatedLabel={updatedLabel} />
+      <DashboardHeader
+        weatherDisplay={weatherDisplay}
+        weatherSummary={weatherSummary}
+        updatedLabel={updatedLabel}
+        onOpenDataManagement={() => navigate(ROUTES.dataManagement)}
+        dataManagementActive={route === ROUTES.dataManagement}
+      />
 
       <div className={`route-transition route-transition--${transitionPhase}`}>
         <div key={displayedRoute} className="route-transition__page">
           {displayedRoute === ROUTES.executionCenter ? (
             <ExecutionCenterPage tasks={tasks} taskStatus={taskStatus} onBackToDashboard={() => navigate(ROUTES.dashboard)} />
+          ) : displayedRoute === ROUTES.dataManagement ? (
+            <DataManagementPage
+              uploads={uploads}
+              uploadsStatus={uploadsStatus}
+              onUploadFile={handleUploadFile}
+              onDeleteFile={handleDeleteFile}
+              onBackToDashboard={() => navigate(ROUTES.dashboard)}
+            />
           ) : (
             <DashboardPage
               tasks={tasks}
@@ -1156,7 +1667,7 @@ const App = () => {
         </div>
       </div>
 
-      <DashboardFooter />
+      <DashboardFooter onOpenDataManagement={() => navigate(ROUTES.dataManagement)} />
     </div>
   )
 }

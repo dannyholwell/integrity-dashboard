@@ -3,10 +3,11 @@ import { env } from './config/env.js';
 import { openDatabase } from './db/connection.js';
 import { applyMigrations } from './db/migrate.js';
 const migrationsDirectory = `${env.projectRoot}/server/src/db/migrations`;
+const uploadsRoot = `${env.projectRoot}/data/imports`;
 const start = async () => {
     const db = openDatabase(env.databasePath);
     applyMigrations(db, migrationsDirectory);
-    const app = buildApp(db, env.logLevel);
+    const app = buildApp(db, env.logLevel, uploadsRoot);
     try {
         await app.listen({
             host: env.host,
