@@ -36,6 +36,7 @@ import {
   Wallet,
   Zap,
 } from 'lucide-react'
+import { loadDashboardSummary } from './api/dashboardApi'
 import { loadTasks } from './data/taskSource'
 
 const MELBOURNE_COORDS = {
@@ -53,24 +54,6 @@ const ROUTE_TRANSITION_MS = {
   enter: 320,
 }
 
-const HEALTH_DATA = [
-  { day: 'Mon', steps: 6200, calories: 2100, hr: 62, hrv: 55, mood: 6, spend: 45 },
-  { day: 'Tue', steps: 8400, calories: 2350, hr: 58, hrv: 62, mood: 8, spend: 20 },
-  { day: 'Wed', steps: 3100, calories: 1800, hr: 68, hrv: 45, mood: 4, spend: 120 },
-  { day: 'Thu', steps: 7800, calories: 2200, hr: 60, hrv: 58, mood: 7, spend: 15 },
-  { day: 'Fri', steps: 9200, calories: 2500, hr: 55, hrv: 70, mood: 9, spend: 30 },
-  { day: 'Sat', steps: 5500, calories: 2000, hr: 64, hrv: 52, mood: 5, spend: 85 },
-  { day: 'Sun', steps: 4200, calories: 1900, hr: 61, hrv: 50, mood: 6, spend: 40 },
-]
-
-const FINANCIAL_CATEGORIES = [
-  { name: 'Groceries', value: 450, color: '#10b981' },
-  { name: 'Recovery/Health', value: 300, color: '#3b82f6' },
-  { name: 'Rent', value: 1200, color: '#6366f1' },
-  { name: 'Subscriptions', value: 80, color: '#f59e0b' },
-  { name: 'Discretionary', value: 250, color: '#ef4444' },
-]
-
 const CHART_TOOLTIP_STYLE = {
   backgroundColor: '#0f172a',
   border: '1px solid #1e293b',
@@ -82,6 +65,13 @@ const AXIS_TICK_STYLE = { fill: '#64748b', fontSize: 12 }
 const AREA_ANIMATION_DURATION = 3000
 const BAR_ANIMATION_DURATION = 1500
 const PIE_ANIMATION_DURATION = 2500
+const FALLBACK_NEXT_EVENT = {
+  title: 'Local summary loading',
+  location: 'Dashboard backend',
+  time: '--:--',
+  timeLeft: 'pending',
+  type: 'System',
+}
 
 const EFFORT_ORDER = ['low', 'medium', 'high']
 
@@ -211,6 +201,8 @@ const getCategoryMeta = (category) =>
   }
 
 const formatTaskStatusLabel = (status) => `${status.charAt(0).toUpperCase()}${status.slice(1)}`
+const formatCurrency = (value) => `$${Number(value ?? 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const getTrendDirection = (value) => (value >= 0 ? 'up' : 'down')
 
 const useHashRoute = () => {
   const [route, setRoute] = useState(getCurrentRoute)
@@ -416,11 +408,54 @@ const useTasks = () => {
   return taskState
 }
 
-const VitalityChart = React.memo(function VitalityChart() {
+const useDashboardSummary = () => {
+  const [dashboardState, setDashboardState] = useState({
+    summary: null,
+    status: 'loading',
+  })
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const fetchSummary = async () => {
+      try {
+        const summary = await loadDashboardSummary()
+
+        if (isCancelled) {
+          return
+        }
+
+        setDashboardState({
+          summary,
+          status: 'ready',
+        })
+      } catch {
+        if (isCancelled) {
+          return
+        }
+
+        setDashboardState({
+          summary: null,
+          status: 'error',
+        })
+      }
+    }
+
+    fetchSummary()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
+  return dashboardState
+}
+
+const VitalityChart = React.memo(function VitalityChart({ data }) {
   return (
     <div className="h-48 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={HEALTH_DATA}>
+        <AreaChart data={data}>
           <defs>
             <linearGradient id="colorSteps" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -446,11 +481,11 @@ const VitalityChart = React.memo(function VitalityChart() {
   )
 })
 
-const CashFlowChart = React.memo(function CashFlowChart() {
+const CashFlowChart = React.memo(function CashFlowChart({ data }) {
   return (
     <div className="h-40 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={HEALTH_DATA}>
+        <BarChart data={data}>
           <XAxis dataKey="day" axisLine={false} tickLine={false} tick={AXIS_TICK_STYLE} />
           <Tooltip
             cursor={{ fill: '#1e293b' }}
@@ -469,13 +504,13 @@ const CashFlowChart = React.memo(function CashFlowChart() {
   )
 })
 
-const AllocationChart = React.memo(function AllocationChart() {
+const AllocationChart = React.memo(function AllocationChart({ allocation }) {
   return (
     <div className="flex h-56 w-full items-center">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
-            data={FINANCIAL_CATEGORIES}
+            data={allocation}
             cx="50%"
             cy="50%"
             innerRadius={60}
@@ -485,7 +520,7 @@ const AllocationChart = React.memo(function AllocationChart() {
             animationDuration={PIE_ANIMATION_DURATION}
             isAnimationActive
           >
-            {FINANCIAL_CATEGORIES.map((entry, index) => (
+            {allocation.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={entry.color} />
             ))}
           </Pie>
@@ -493,7 +528,7 @@ const AllocationChart = React.memo(function AllocationChart() {
         </PieChart>
       </ResponsiveContainer>
       <div className="flex flex-col gap-2">
-        {FINANCIAL_CATEGORIES.map((category) => (
+        {allocation.map((category) => (
           <div key={category.name} className="flex items-center gap-2 text-xs">
             <div className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color }} />
             <span className="text-slate-400">{category.name}</span>
@@ -667,7 +702,7 @@ const DashboardHeader = ({ weatherDisplay, weatherSummary, updatedLabel }) => {
 
 const DashboardFooter = () => (
   <footer className="mx-auto mt-12 flex max-w-7xl items-center justify-between border-t border-slate-900 pt-8 text-xs text-slate-600">
-    <div>System version 2.6.1-Executive-Control</div>
+    <div>System version 2.7.0-local-first</div>
     <div className="flex gap-4">
       <a href="#" className="hover:text-slate-400">
         Settings
@@ -682,7 +717,7 @@ const DashboardFooter = () => (
   </footer>
 )
 
-const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) => {
+const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecutionCenter }) => {
   const taskStats = {
     low: tasks.filter((task) => task.effort === 'low').length,
     medium: tasks.filter((task) => task.effort === 'medium').length,
@@ -690,6 +725,34 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
   }
 
   const previewTasks = tasks.slice(0, 3)
+  const nextEvent = summary?.nextEvent ?? FALLBACK_NEXT_EVENT
+  const insights = summary?.insights ?? []
+  const healthMetrics = summary?.health?.metrics ?? {
+    steps: 0,
+    calories: 0,
+    hrv: 0,
+    oxygen: 0,
+    stepsTrendPercent: 0,
+    hrvTrendDelta: 0,
+  }
+  const healthDaily = summary?.health?.daily ?? []
+  const moodSummary = summary?.mood ?? {
+    currentScore: 0,
+    label: 'Unavailable',
+    filledSegments: 0,
+  }
+  const financeSummary = summary?.finance ?? {
+    totalBalance: 0,
+    dailyBudgetLeft: 0,
+    allocation: [],
+    recentDailySpend: [],
+  }
+  const dashboardStateMessage =
+    summaryStatus === 'loading'
+      ? 'Loading local dashboard data...'
+      : summaryStatus === 'error'
+        ? 'Local dashboard API unavailable. Start the backend to hydrate these cards.'
+        : ''
 
   return (
     <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-12">
@@ -697,24 +760,37 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Card title="Vitality" icon={Activity} className="sm:col-span-2" tileIndex={0}>
             <div className="mb-8 grid grid-cols-2 gap-6 sm:grid-cols-4">
-              <Metric label="Steps" value="8,402" unit="steps" trend="up" trendValue="12%" />
-              <Metric label="Calories" value="2,140" unit="kcal" />
-              <Metric label="HRV" value="62" unit="ms" trend="up" trendValue="5ms" />
-              <Metric label="Oxygen" value="98" unit="%" />
+              <Metric
+                label="Steps"
+                value={healthMetrics.steps.toLocaleString()}
+                unit="steps"
+                trend={getTrendDirection(healthMetrics.stepsTrendPercent)}
+                trendValue={`${Math.abs(healthMetrics.stepsTrendPercent)}%`}
+              />
+              <Metric label="Calories" value={healthMetrics.calories.toLocaleString()} unit="kcal" />
+              <Metric
+                label="HRV"
+                value={healthMetrics.hrv.toLocaleString()}
+                unit="ms"
+                trend={getTrendDirection(healthMetrics.hrvTrendDelta)}
+                trendValue={`${Math.abs(healthMetrics.hrvTrendDelta)}ms`}
+              />
+              <Metric label="Oxygen" value={healthMetrics.oxygen.toLocaleString()} unit="%" />
             </div>
-            <VitalityChart />
+            <VitalityChart data={healthDaily} />
+            {dashboardStateMessage && <p className="mt-4 text-sm text-slate-500">{dashboardStateMessage}</p>}
           </Card>
 
           <Card title="Mood / Energy" icon={Brain} tileIndex={1}>
             <div className="flex h-full items-center justify-center pb-8">
               <div className="relative flex flex-col items-center">
-                <div className="text-5xl font-bold text-amber-400">7.2</div>
-                <div className="mt-2 text-sm font-semibold uppercase tracking-widest text-slate-500">Elevated</div>
+                <div className="text-5xl font-bold text-amber-400">{moodSummary.currentScore.toFixed(1)}</div>
+                <div className="mt-2 text-sm font-semibold uppercase tracking-widest text-slate-500">{moodSummary.label}</div>
                 <div className="mt-4 flex gap-1">
                   {[1, 2, 3, 4, 5].map((level) => (
                     <div
                       key={level}
-                      className={`h-1.5 w-6 rounded-full ${level <= 4 ? 'bg-amber-400' : 'bg-slate-800'}`}
+                      className={`h-1.5 w-6 rounded-full ${level <= moodSummary.filledSegments ? 'bg-amber-400' : 'bg-slate-800'}`}
                     />
                   ))}
                 </div>
@@ -728,18 +804,18 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <div className="text-sm text-slate-500">Total Balance</div>
-                <div className="text-3xl font-bold">$12,450.00</div>
+                <div className="text-3xl font-bold">{formatCurrency(financeSummary.totalBalance)}</div>
               </div>
               <div className="text-right">
                 <div className="text-sm text-slate-500">Daily Budget</div>
-                <div className="text-xl font-semibold text-emerald-400">$42.10 left</div>
+                <div className="text-xl font-semibold text-emerald-400">{formatCurrency(financeSummary.dailyBudgetLeft)} left</div>
               </div>
             </div>
-            <CashFlowChart />
+            <CashFlowChart data={financeSummary.recentDailySpend} />
           </Card>
 
           <Card title="Allocation" icon={DollarSign} tileIndex={3}>
-            <AllocationChart />
+            <AllocationChart allocation={financeSummary.allocation} />
           </Card>
         </div>
       </div>
@@ -810,24 +886,23 @@ const DashboardPage = ({ tasks, taskStatus, nextEvent, onOpenExecutionCenter }) 
 
         <Card title="Integrity Engine" icon={TrendingUp} tileIndex={6}>
           <div className="space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-blue-500/10 p-1.5 text-blue-400">
-                <Coffee size={14} />
-              </div>
-              <p className="text-xs leading-relaxed text-slate-400">
-                <span className="mb-0.5 block font-semibold text-slate-200">Energy/Effort Match</span>
-                Today&apos;s mood (7.2) is ideal for tackling your 1 &quot;High Effort&quot; task before 11:00 AM.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-rose-500/10 p-1.5 text-rose-400">
-                <AlertCircle size={14} />
-              </div>
-              <p className="text-xs leading-relaxed text-slate-400">
-                <span className="mb-0.5 block font-semibold text-slate-200">Reward Seek Trigger</span>
-                Low step count detected (8,402 vs 10k target). Watch for impulsive &quot;add to cart&quot; urges this evening.
-              </p>
-            </div>
+            {insights.map((insight) => {
+              const Icon = insight.type === 'energy' ? Coffee : AlertCircle
+              const iconClassName = insight.type === 'energy' ? 'bg-blue-500/10 text-blue-400' : 'bg-rose-500/10 text-rose-400'
+
+              return (
+                <div key={insight.title} className="flex items-start gap-3">
+                  <div className={`rounded-lg p-1.5 ${iconClassName}`}>
+                    <Icon size={14} />
+                  </div>
+                  <p className="text-xs leading-relaxed text-slate-400">
+                    <span className="mb-0.5 block font-semibold text-slate-200">{insight.title}</span>
+                    {insight.message}
+                  </p>
+                </div>
+              )
+            })}
+            {insights.length === 0 && <p className="text-xs leading-relaxed text-slate-400">{dashboardStateMessage || 'No integrity insights yet.'}</p>}
           </div>
         </Card>
       </div>
@@ -879,7 +954,7 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
             </div>
 
             <p className="mt-5 max-w-2xl text-sm leading-relaxed text-slate-400">
-              This page is wired to an async task source instead of hardcoded page state, so the UI can later swap to a JSON export, local service, or vault sync pipeline without changing the filtering or layout logic.
+              This page now reads normalized task records through the frontend API boundary, so the UI stays decoupled from SQLite, CSV imports, and future source adapters.
             </p>
           </div>
 
@@ -986,7 +1061,7 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
           className="route-card rounded-2xl border border-rose-500/20 bg-rose-500/10 p-6 text-sm text-rose-200"
           style={{ '--tile-index': 4 }}
         >
-          The task feed failed to load. The page is ready for an external source, but the current provider did not return data.
+          The task feed failed to load. Start the local backend to restore the task source.
         </section>
       )}
 
@@ -1024,7 +1099,7 @@ const ExecutionCenterPage = ({ tasks, taskStatus, onBackToDashboard }) => {
               <div>
                 <div className="text-slate-500">Source model</div>
                 <p className="mt-1 leading-relaxed text-slate-400">
-                  Normalized task records with category and effort metadata. Replace the current provider with a vault export or local API when you are ready.
+                  Normalized task records exposed by the local API. Replace the current ingest or source adapters without rewriting the UI.
                 </p>
               </div>
               <div>
@@ -1047,15 +1122,8 @@ const App = () => {
   const { route, navigate } = useHashRoute()
   const { displayedRoute, transitionPhase } = useRouteTransition(route)
   const weather = useWeather()
+  const { summary, status: summaryStatus } = useDashboardSummary()
   const { items: tasks, status: taskStatus } = useTasks()
-
-  const nextEvent = {
-    title: 'Physiotherapy - Mobility Check',
-    location: 'Moonee Ponds Clinic',
-    time: '2:30 PM',
-    timeLeft: '45 mins',
-    type: 'Health',
-  }
 
   const weatherDisplay = getWeatherDisplay(weather.code)
   const weatherSummary =
@@ -1080,7 +1148,8 @@ const App = () => {
             <DashboardPage
               tasks={tasks}
               taskStatus={taskStatus}
-              nextEvent={nextEvent}
+              summary={summary}
+              summaryStatus={summaryStatus}
               onOpenExecutionCenter={() => navigate(ROUTES.executionCenter)}
             />
           )}

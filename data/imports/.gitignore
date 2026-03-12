@@ -1,0 +1,6 @@
+*
+!.gitignore
+!tasks/
+!finance/
+!health/
+!mood/

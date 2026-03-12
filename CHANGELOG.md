@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-03-12
+
+### Added
+
+- Added a local TypeScript backend in `server/` using Fastify and SQLite for dashboard, tasks, finance, health, and mood APIs.
+- Added a SQLite migration layer with seeded local demo data and raw/core/view table structure.
+- Added a TypeScript ingest CLI in `ingest/` for CSV import into raw tables with normalized core-table upserts and reject capture.
+- Added frontend API client modules for dashboard, tasks, finance, health, and mood data.
+- Added server and ingest test coverage for API bootstrapping and task CSV ingestion.
+- Added a `data/` workspace for the local SQLite database, import files, and backups.
+- Added a second architecture decision record for the local-first backend boundary.
+
+### Changed
+
+- Replaced the in-app mocked task provider with a local API-backed task source adapter.
+- Moved dashboard vitality, mood, finance, and insight data behind the new local backend API instead of hardcoded frontend arrays.
+- Updated the frontend dev server to proxy `/api/*` requests to the local backend on `127.0.0.1:3001`.
+- Rewrote the repository README around the local-first architecture, startup flow, and no-auth local MVP posture.
+
+### Notes
+
+- The MVP intentionally has no application authentication layer.
+- Access control is currently delegated to local machine security only.
+
 ## 2026-03-11
 
 ### Added
