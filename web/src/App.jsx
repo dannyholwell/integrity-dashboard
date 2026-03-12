@@ -908,6 +908,20 @@ const CashFlowChart = React.memo(function CashFlowChart({ data }) {
 })
 
 const AllocationChart = React.memo(function AllocationChart({ allocation, layout = 'side' }) {
+  const legend = (
+    <div className="space-y-2">
+      {allocation.map((category) => (
+        <div key={category.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 text-xs">
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
+            <span className="min-w-0 break-words text-slate-400">{category.name}</span>
+          </div>
+          <span className="whitespace-nowrap text-right font-medium text-slate-300">{formatCurrency(category.value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+
   if (layout === 'stacked') {
     return (
       <div className="w-full">
@@ -936,14 +950,7 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3">
-          {allocation.map((category) => (
-            <div key={category.name} className="flex min-w-0 items-start gap-2 text-xs">
-              <div className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
-              <span className="min-w-0 break-words text-slate-400">{category.name}</span>
-            </div>
-          ))}
-        </div>
+        <div className="mt-4">{legend}</div>
       </div>
     )
   }
@@ -970,14 +977,7 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
           <Tooltip />
         </PieChart>
       </ResponsiveContainer>
-      <div className="flex flex-col gap-2">
-        {allocation.map((category) => (
-          <div key={category.name} className="flex items-center gap-2 text-xs">
-            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color }} />
-            <span className="text-slate-400">{category.name}</span>
-          </div>
-        ))}
-      </div>
+      <div className="min-w-0 flex-1 pl-4">{legend}</div>
     </div>
   )
 })
@@ -1507,30 +1507,31 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
               No transactions are available in the database yet.
             </div>
           ) : (
-            <div className="finance-transactions-scroll min-h-0 flex-1 overflow-auto pr-2">
-              <table className="min-w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
-                    <th className="pb-3 pr-4 font-semibold">Posted</th>
-                    <th className="pb-3 pr-4 font-semibold">Description</th>
-                    <th className="pb-3 pr-4 font-semibold">Merchant</th>
-                    <th className="pb-3 pr-4 font-semibold">Category</th>
-                    <th className="pb-3 pr-4 font-semibold">Direction</th>
-                    <th className="pb-3 text-right font-semibold">Amount</th>
-                    <th className="pb-3 pl-4 text-right font-semibold">Edit</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <>
+              <div className="finance-transactions-header border-b border-slate-800">
+                <div className="finance-transactions-columns pb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <div className="pr-4">Posted</div>
+                  <div className="pr-4">Description</div>
+                  <div className="pr-4">Merchant</div>
+                  <div className="pr-4">Category</div>
+                  <div className="pr-4">Direction</div>
+                  <div className="text-right">Amount</div>
+                  <div className="pl-4 text-right">Edit</div>
+                </div>
+              </div>
+
+              <div className="finance-transactions-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+                <div className="text-sm">
                   {transactions.map((transaction) => (
-                    <tr key={transaction.id} className="border-b border-slate-900/80 text-slate-300">
-                      <td className="py-4 pr-4 text-slate-400">{formatDateLabel(transaction.postedAt)}</td>
-                      <td className="py-4 pr-4">
+                    <div key={transaction.id} className="finance-transactions-columns border-b border-slate-900/80 py-4 text-slate-300">
+                      <div className="pr-4 text-slate-400">{formatDateLabel(transaction.postedAt)}</div>
+                      <div className="pr-4">
                         <div className="font-medium text-slate-100">{transaction.description}</div>
                         <div className="mt-1 text-xs text-slate-500">{transaction.currency}</div>
-                      </td>
-                      <td className="py-4 pr-4 text-slate-400">{transaction.merchant ?? 'Unassigned'}</td>
-                      <td className="py-4 pr-4 text-slate-400">{transaction.category}</td>
-                      <td className="py-4 pr-4">
+                      </div>
+                      <div className="pr-4 text-slate-400">{transaction.merchant ?? 'Unassigned'}</div>
+                      <div className="pr-4 text-slate-400">{transaction.category}</div>
+                      <div className="pr-4">
                         <span
                           className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${
                             transaction.direction === 'credit'
@@ -1540,16 +1541,16 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                         >
                           {formatDirectionLabel(transaction.direction)}
                         </span>
-                      </td>
-                      <td
-                        className={`py-4 text-right font-semibold ${
+                      </div>
+                      <div
+                        className={`text-right font-semibold ${
                           transaction.direction === 'credit' ? 'text-emerald-300' : 'text-slate-100'
                         }`}
                       >
                         {transaction.direction === 'credit' ? '+' : '-'}
                         {formatCurrency(transaction.amount).replace('$', '')}
-                      </td>
-                      <td className="py-4 pl-4 text-right">
+                      </div>
+                      <div className="pl-4 text-right">
                         <button
                           type="button"
                           onClick={() => openEditModal(transaction)}
@@ -1559,12 +1560,12 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                         >
                           <Pencil size={15} />
                         </button>
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              </div>
+            </>
           )}
         </section>
       </section>
