@@ -31,6 +31,7 @@ import {
     DollarSign,
     MapPin,
     RefreshCcw,
+    Trash2,
     Upload,
     Sun,
     TrendingUp,
@@ -1345,7 +1346,7 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
                   <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
                     <th className="pb-3 pr-4 font-semibold">File name</th>
                     <th className="pb-3 pr-4 font-semibold">Data type</th>
-                    <th className="pb-3 pr-4 font-semibold">Date uploaded</th>
+                    <th className="pb-3 pr-4 font-semibold">Uploaded</th>
                     <th className="pb-3 pr-4 font-semibold">Date range</th>
                     <th className="pb-3 pr-4 font-semibold">Size</th>
                     <th className="pb-3 text-right font-semibold">Action</th>
@@ -1372,9 +1373,11 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
                             type="button"
                             onClick={() => handleDelete(upload.id)}
                             disabled={deletingId === upload.id}
-                            className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-200 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                            aria-label={`Delete ${upload.fileName}`}
+                            title={`Delete ${upload.fileName}`}
+                            className="inline-flex h-9 w-9 items-center justify-center text-rose-400 transition-colors hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {deletingId === upload.id ? 'Deleting...' : 'Delete file'}
+                            <Trash2 size={15} />
                           </button>
                         </td>
                       </tr>

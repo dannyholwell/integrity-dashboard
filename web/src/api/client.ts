@@ -7,6 +7,8 @@ const parseApiError = async (response: Response) => {
     const payload = await response.json()
     if (payload?.error) {
       message = payload.error
+    } else if (payload?.message) {
+      message = payload.message
     }
   } catch {
     // Ignore JSON parse failures and surface the HTTP status message.
