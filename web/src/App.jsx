@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -18,7 +18,9 @@ import {
   ArrowLeft,
   Brain,
   Calendar,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Cloud,
   CloudDrizzle,
   CloudFog,
@@ -272,6 +274,10 @@ const getTrendDirection = (value) => (value >= 0 ? 'up' : 'down')
 const formatDirectionLabel = (direction) => `${direction.charAt(0).toUpperCase()}${direction.slice(1)}`
 const DASHBOARD_ALLOCATION_MAX_CATEGORIES = 7
 const FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES = 21
+const FINANCE_PAGE_ALLOCATION_MIN_CATEGORIES = 6
+const FINANCE_ALLOCATION_LEGEND_ROW_GAP = 6
+const FINANCE_ALLOCATION_CHART_AND_GAP_HEIGHT = 272
+const FINANCE_ALLOCATION_HEADER_GAP = 16
 const FINANCE_CATEGORY_COLORS = {
   Alcohol: '#ec4899',
   'Cafe & coffee': '#f59e0b',
@@ -985,7 +991,13 @@ const CashFlowChart = React.memo(function CashFlowChart({ data }) {
   )
 })
 
-const AllocationChart = React.memo(function AllocationChart({ allocation, layout = 'side', selectedCategory = null, onCategorySelect = null }) {
+const AllocationChart = React.memo(function AllocationChart({
+  allocation,
+  layout = 'side',
+  selectedCategory = null,
+  onCategorySelect = null,
+  stackedLegendItemRef = null,
+}) {
   if (allocation.length === 0) {
     return (
       <div className={`flex w-full items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 px-4 text-center text-sm text-slate-500 ${layout === 'stacked' ? 'h-64' : 'h-56'}`}>
@@ -1002,6 +1014,7 @@ const AllocationChart = React.memo(function AllocationChart({ allocation, layout
       {allocation.map((category) => (
         <button
           key={category.name}
+          ref={stackedLegendItemRef && allocation[0]?.name === category.name ? stackedLegendItemRef : undefined}
           type="button"
           onClick={isInteractive ? () => onCategorySelect(category) : undefined}
           className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 rounded-xl px-2 py-1 text-left text-xs transition-colors ${
@@ -1399,7 +1412,7 @@ const DashboardPage = ({ tasks, taskStatus, summary, summaryStatus, onOpenExecut
             <CashFlowChart data={financeSummary.recentDailySpend} />
           </Card>
 
-          <Card title="Allocation" icon={DollarSign} onAction={onOpenFinancePage} actionLabel="Open Finance" tileIndex={3}>
+          <Card title="Expense Allocation" icon={DollarSign} onAction={onOpenFinancePage} actionLabel="Open Finance" tileIndex={3}>
             <AllocationChart allocation={dashboardAllocation} />
           </Card>
         </div>
@@ -1515,6 +1528,9 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
     start: null,
     end: null,
   })
+  const [financeAllocationCap, setFinanceAllocationCap] = useState(FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES)
+  const allocationTileRef = useRef(null)
+  const allocationLegendItemRef = useRef(null)
 
   const timelineDates = useMemo(() => {
     if (transactionsStatus !== 'ready' || transactions.length === 0) {
@@ -1544,6 +1560,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
     selectedStartDate && selectedEndDate && selectedStartDate > selectedEndDate ? selectedStartDate : selectedEndDate
   const rangeStartIndex = selectedStartDate ? (dateIndexByKey.get(selectedStartDate) ?? 0) : 0
   const rangeEndIndex = selectedEndDate ? (dateIndexByKey.get(selectedEndDate) ?? Math.max(0, timelineDates.length - 1)) : Math.max(0, timelineDates.length - 1)
+  const rangeHandlesOverlap = rangeStartIndex === rangeEndIndex
   const rangeDenominator = Math.max(1, timelineDates.length - 1)
   const rangeStartPercent = (rangeStartIndex / rangeDenominator) * 100
   const rangeEndPercent = (rangeEndIndex / rangeDenominator) * 100
@@ -1577,7 +1594,55 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
       }))
       .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name))
   })()
-  const financePageAllocation = groupAllocation(filteredAllocation, FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES)
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.ResizeObserver !== 'function' ||
+      !allocationTileRef.current ||
+      !allocationLegendItemRef.current ||
+      filteredAllocation.length === 0
+    ) {
+      return undefined
+    }
+
+    const tileElement = allocationTileRef.current
+    const legendItemElement = allocationLegendItemRef.current
+
+    const updateAllocationCap = () => {
+      const tileStyles = window.getComputedStyle(tileElement)
+      const paddingTop = Number.parseFloat(tileStyles.paddingTop) || 0
+      const paddingBottom = Number.parseFloat(tileStyles.paddingBottom) || 0
+      const availableLegendHeight =
+        tileElement.clientHeight -
+        paddingTop -
+        paddingBottom -
+        FINANCE_ALLOCATION_HEADER_GAP -
+        FINANCE_ALLOCATION_CHART_AND_GAP_HEIGHT
+      const legendRowHeight = legendItemElement.getBoundingClientRect().height + FINANCE_ALLOCATION_LEGEND_ROW_GAP
+      const computedCap = Math.floor((availableLegendHeight + FINANCE_ALLOCATION_LEGEND_ROW_GAP) / legendRowHeight)
+      const nextCap = Math.max(
+        FINANCE_PAGE_ALLOCATION_MIN_CATEGORIES,
+        Math.min(FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES, filteredAllocation.length, computedCap)
+      )
+
+      setFinanceAllocationCap((current) => (current === nextCap ? current : nextCap))
+    }
+
+    updateAllocationCap()
+
+    const resizeObserver = new window.ResizeObserver(() => {
+      updateAllocationCap()
+    })
+
+    resizeObserver.observe(tileElement)
+    resizeObserver.observe(legendItemElement)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [filteredAllocation.length])
+
+  const financePageAllocation = groupAllocation(filteredAllocation, financeAllocationCap)
   const activeAllocationFilter = financePageAllocation.find((category) => category.name === selectedAllocationCategory) ?? null
   const categoryFilteredTransactions =
     !activeAllocationFilter
@@ -1604,6 +1669,32 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
       start: nextStart <= nextEnd ? nextStart : nextEnd,
       end: nextEnd >= nextStart ? nextEnd : nextStart,
     })
+  }
+
+  const moveStartDateBy = (delta) => {
+    if (!selectedStartDate || !selectedEndDate) {
+      return
+    }
+
+    const nextIndex = Math.min(Math.max(0, rangeStartIndex + delta), rangeEndIndex)
+    const nextStart = timelineDates[nextIndex]
+
+    if (nextStart) {
+      applySelectedDateRange(nextStart, selectedEndDate)
+    }
+  }
+
+  const moveEndDateBy = (delta) => {
+    if (!selectedStartDate || !selectedEndDate) {
+      return
+    }
+
+    const nextIndex = Math.max(rangeStartIndex, Math.min(timelineDates.length - 1, rangeEndIndex + delta))
+    const nextEnd = timelineDates[nextIndex]
+
+    if (nextEnd) {
+      applySelectedDateRange(selectedStartDate, nextEnd)
+    }
   }
 
   const handleAllocationCategorySelect = (category) => {
@@ -1749,16 +1840,36 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
               Upload finance data to activate the date timeline.
             </div>
           ) : (
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Detected range</div>
-                <div className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300">
-                  {activeRangeLabel}
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_minmax(0,12rem)]">
+              <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Start</div>
+                  <div className="mt-1 text-sm font-medium text-slate-200">{formatDateLabel(selectedStartDate)}</div>
+                </div>
+                <div className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => moveStartDateBy(1)}
+                    disabled={rangeStartIndex === rangeEndIndex}
+                    aria-label="Move start date later"
+                    className="inline-flex h-6 w-6 items-center justify-center text-slate-400 transition-colors hover:text-slate-200 disabled:cursor-not-allowed disabled:text-slate-700"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveStartDateBy(-1)}
+                    disabled={rangeStartIndex === 0}
+                    aria-label="Move start date earlier"
+                    className="inline-flex h-6 w-6 items-center justify-center text-slate-400 transition-colors hover:text-slate-200 disabled:cursor-not-allowed disabled:text-slate-700"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
                 </div>
               </div>
 
-              <div className="mt-4">
-                <div className="relative h-8">
+              <div className="flex items-center rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                <div className="relative h-8 w-full">
                   <div className="absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-slate-800" />
                   <div
                     className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-blue-500"
@@ -1777,7 +1888,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                       const nextStart = timelineDates[Number(event.target.value)]
                       applySelectedDateRange(nextStart, selectedEndDate ?? nextStart)
                     }}
-                    className="finance-range-slider"
+                    className={`finance-range-slider ${rangeHandlesOverlap ? 'z-20' : 'z-10'}`}
                     aria-label="Start date"
                   />
                   <input
@@ -1790,25 +1901,36 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                       const nextEnd = timelineDates[Number(event.target.value)]
                       applySelectedDateRange(selectedStartDate ?? nextEnd, nextEnd)
                     }}
-                    className="finance-range-slider"
+                    className={`finance-range-slider ${rangeHandlesOverlap ? 'z-10' : 'z-20'}`}
                     aria-label="End date"
                   />
                 </div>
+              </div>
 
-                <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-                  <span>{formatDateLabel(minAvailableDate)}</span>
-                  <span>{formatDateLabel(maxAvailableDate)}</span>
+              <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">End</div>
+                  <div className="mt-1 text-sm font-medium text-slate-200">{formatDateLabel(selectedEndDate)}</div>
                 </div>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2.5">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Start</div>
-                    <div className="mt-1 text-sm font-medium text-slate-200">{formatDateLabel(selectedStartDate)}</div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2.5">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">End</div>
-                    <div className="mt-1 text-sm font-medium text-slate-200">{formatDateLabel(selectedEndDate)}</div>
-                  </div>
+                <div className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => moveEndDateBy(1)}
+                    disabled={rangeEndIndex === timelineDates.length - 1}
+                    aria-label="Move end date later"
+                    className="inline-flex h-6 w-6 items-center justify-center text-slate-400 transition-colors hover:text-slate-200 disabled:cursor-not-allowed disabled:text-slate-700"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveEndDateBy(-1)}
+                    disabled={rangeEndIndex === rangeStartIndex}
+                    aria-label="Move end date earlier"
+                    className="inline-flex h-6 w-6 items-center justify-center text-slate-400 transition-colors hover:text-slate-200 disabled:cursor-not-allowed disabled:text-slate-700"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -1818,13 +1940,14 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
 
       <section className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
         <section
-          className="route-card flex h-full flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
+          ref={allocationTileRef}
+          className="route-card flex max-h-[70vh] min-h-[28rem] h-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm"
           style={{ '--tile-index': 2 }}
         >
           <div className="mb-4">
             <h3 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
               <DollarSign size={18} className="text-blue-400" />
-              Allocation
+              Expense Allocation
             </h3>
           </div>
 
@@ -1834,6 +1957,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
               layout="stacked"
               selectedCategory={activeAllocationFilter?.name ?? null}
               onCategorySelect={handleAllocationCategorySelect}
+              stackedLegendItemRef={allocationLegendItemRef}
             />
           </div>
         </section>
@@ -1886,7 +2010,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                   <div className="pr-4">Merchant</div>
                   <div className="pr-4">Category</div>
                   <div className="pr-4">Direction</div>
-                  <div className="text-right">Amount</div>
+                  <div className="pr-2 text-right">Amount</div>
                   <div className="pr-1 text-right">Edit</div>
                 </div>
               </div>
@@ -1914,7 +2038,7 @@ const FinancePage = ({ summary, summaryStatus, transactions, transactionsStatus,
                         </span>
                       </div>
                       <div
-                        className={`text-right font-semibold ${
+                        className={`pr-2 text-right font-semibold ${
                           transaction.direction === 'credit' ? 'text-emerald-300' : 'text-slate-100'
                         }`}
                       >
