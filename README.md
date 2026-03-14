@@ -60,6 +60,8 @@ The MVP is intentionally local-only. Sensitive personal data stays on the Mac th
 
 The app now supports CSV upload from the Data Management page. Header names matter more than column order, so another user can prepare their own export as long as the headings match one of the accepted names below.
 
+Duplicate rows are skipped during import. Exact repeats in the same CSV, or rows that already exist unchanged in the normalized tables, are stored in the raw import history but not re-imported into the core tables.
+
 ### Tasks
 
 - Required: `title` or `name`
