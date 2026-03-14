@@ -22,17 +22,18 @@ export const startImportBatch = ({ db, domain, sourceName, filePath }) => {
         absolutePath,
     };
 };
-export const finishImportBatch = ({ db, batchId, status, rowCount, insertedCount, rejectedCount, notes, }) => {
+export const finishImportBatch = ({ db, batchId, status, rowCount, insertedCount, skippedCount, rejectedCount, notes, }) => {
     db.prepare(`
     UPDATE import_batch
     SET
       status = ?,
       row_count = ?,
       inserted_count = ?,
+      skipped_count = ?,
       rejected_count = ?,
       notes = ?
     WHERE id = ?
-  `).run(status, rowCount, insertedCount, rejectedCount, notes ?? null, batchId);
+  `).run(status, rowCount, insertedCount, skippedCount, rejectedCount, notes ?? null, batchId);
 };
 export const recordReject = ({ db, batchId, domain, rowNumber, errorCode, errorMessage, rawPayload }) => {
     db.prepare(`

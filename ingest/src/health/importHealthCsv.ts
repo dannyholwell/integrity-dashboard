@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type { CsvRecord } from '../shared/csv.js'
 import { readCsvFile } from '../shared/csv.js'
 import type { AppDatabase } from '../shared/db.js'
@@ -28,6 +27,7 @@ export const importHealthCsv = (db: AppDatabase, filePath: string, sourceName: s
 
   const rows = readCsvFile(absolutePath)
   let insertedCount = 0
+  let skippedCount = 0
   let rejectedCount = 0
 
   const insertRaw = db.prepare(`
@@ -67,6 +67,17 @@ export const importHealthCsv = (db: AppDatabase, filePath: string, sourceName: s
       recovery_score = excluded.recovery_score,
       oxygen_saturation_pct = excluded.oxygen_saturation_pct,
       updated_at = CURRENT_TIMESTAMP
+    WHERE
+      core_daily_health.source_system IS NOT excluded.source_system
+      OR core_daily_health.steps IS NOT excluded.steps
+      OR core_daily_health.active_calories IS NOT excluded.active_calories
+      OR core_daily_health.resting_heart_rate IS NOT excluded.resting_heart_rate
+      OR core_daily_health.hrv_ms IS NOT excluded.hrv_ms
+      OR core_daily_health.sleep_minutes IS NOT excluded.sleep_minutes
+      OR core_daily_health.workout_minutes IS NOT excluded.workout_minutes
+      OR core_daily_health.body_weight_kg IS NOT excluded.body_weight_kg
+      OR core_daily_health.recovery_score IS NOT excluded.recovery_score
+      OR core_daily_health.oxygen_saturation_pct IS NOT excluded.oxygen_saturation_pct
   `)
 
   const transaction = db.transaction(() => {
@@ -90,7 +101,7 @@ export const importHealthCsv = (db: AppDatabase, filePath: string, sourceName: s
           throw new Error('Missing health day/date')
         }
 
-        upsertCore.run(
+        const result = upsertCore.run(
           day,
           sourceName,
           Number(readField(row, ['steps']) ?? 0),
@@ -103,7 +114,11 @@ export const importHealthCsv = (db: AppDatabase, filePath: string, sourceName: s
           toNumberOrNull(readField(row, ['recovery_score'])),
           toNumberOrNull(readField(row, ['oxygen_saturation_pct', 'oxygen']))
         )
-        insertedCount += 1
+        if (result.changes > 0) {
+          insertedCount += 1
+        } else {
+          skippedCount += 1
+        }
       } catch (error) {
         rejectedCount += 1
         recordReject({
@@ -128,6 +143,7 @@ export const importHealthCsv = (db: AppDatabase, filePath: string, sourceName: s
       status: rejectedCount > 0 ? 'completed_with_rejects' : 'completed',
       rowCount: rows.length,
       insertedCount,
+      skippedCount,
       rejectedCount,
     })
   } catch (error) {
@@ -137,11 +153,12 @@ export const importHealthCsv = (db: AppDatabase, filePath: string, sourceName: s
       status: 'failed',
       rowCount: rows.length,
       insertedCount,
+      skippedCount,
       rejectedCount,
       notes: error instanceof Error ? error.message : 'Unknown import failure',
     })
     throw error
   }
 
-  return { rowCount: rows.length, insertedCount, rejectedCount }
+  return { rowCount: rows.length, insertedCount, skippedCount, rejectedCount }
 }

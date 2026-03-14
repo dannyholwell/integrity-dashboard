@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { extname, resolve } from 'node:path'
 import type { ImportResult, RunImport } from '../lib/runImport.js'
@@ -37,6 +37,137 @@ const ensureCsvFileName = (fileName: string) => {
   }
 }
 
+const normalizeCsvHeader = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+
+const parseCsvLine = (line: string) => {
+  const values: string[] = []
+  let currentValue = ''
+  let inQuotes = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]
+    const nextCharacter = line[index + 1]
+
+    if (character === '"') {
+      if (inQuotes && nextCharacter === '"') {
+        currentValue += '"'
+        index += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (character === ',' && !inQuotes) {
+      values.push(currentValue)
+      currentValue = ''
+      continue
+    }
+
+    currentValue += character
+  }
+
+  values.push(currentValue)
+  return values
+}
+
+const parseCsvRecords = (text: string) => {
+  const lines = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+
+  if (lines.length < 2) {
+    return []
+  }
+
+  const headers = parseCsvLine(lines[0]).map((header) => normalizeCsvHeader(header))
+
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line)
+    return headers.reduce<Record<string, string>>((record, header, index) => {
+      record[header] = (values[index] ?? '').trim()
+      return record
+    }, {})
+  })
+}
+
+const MONTH_INDEX: Record<string, string> = {
+  jan: '01',
+  feb: '02',
+  mar: '03',
+  apr: '04',
+  may: '05',
+  jun: '06',
+  jul: '07',
+  aug: '08',
+  sep: '09',
+  oct: '10',
+  nov: '11',
+  dec: '12',
+}
+
+const normalizeDateValue = (value: string) => {
+  const trimmed = value.trim()
+
+  if (!trimmed) {
+    return null
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/)
+  if (isoMatch) {
+    return isoMatch[1]
+  }
+
+  const dayMonthYearMatch = trimmed.match(/^(\d{1,2}) ([A-Za-z]{3}) (\d{2}|\d{4})$/)
+  if (dayMonthYearMatch) {
+    const [, dayValue, monthToken, yearValue] = dayMonthYearMatch
+    const month = MONTH_INDEX[monthToken.toLowerCase()]
+
+    if (!month) {
+      return null
+    }
+
+    const day = dayValue.padStart(2, '0')
+    const year = yearValue.length === 2 ? `20${yearValue}` : yearValue
+    return `${year}-${month}-${day}`
+  }
+
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const extractDateRange = (domain: DataUploadInput['domain'], content: string) => {
+  const records = parseCsvRecords(content)
+  const dateKeys: Record<DataUploadInput['domain'], string[]> = {
+    tasks: ['due_date', 'due'],
+    finance: ['posted_at', 'date'],
+    health: ['day', 'date'],
+    mood: ['entry_at', 'timestamp'],
+  }
+
+  const dates = records
+    .map((record) => {
+      const key = dateKeys[domain].find((candidate) => record[candidate])
+      return key ? normalizeDateValue(record[key]) : null
+    })
+    .filter((value): value is string => value !== null)
+    .sort((left, right) => left.localeCompare(right))
+
+  return {
+    dateRangeStart: dates[0] ?? null,
+    dateRangeEnd: dates[dates.length - 1] ?? null,
+  }
+}
+
 const toResponseItem = (row: DataUploadRow) => ({
   id: row.id,
   fileName: row.original_file_name,
@@ -49,7 +180,7 @@ const toResponseItem = (row: DataUploadRow) => ({
 })
 
 export const createDataManagementService = ({ db, uploadsRoot, runImport }: CreateDataManagementServiceInput) => {
-  const listFiles = () => {
+  const listFiles = async () => {
     const rows = db
       .prepare(`
         SELECT
@@ -67,7 +198,42 @@ export const createDataManagementService = ({ db, uploadsRoot, runImport }: Crea
       `)
       .all() as DataUploadRow[]
 
-    return rows.map(toResponseItem)
+    const items = await Promise.all(
+      rows.map(async (row) => {
+        if (row.date_range_start || row.date_range_end) {
+          return toResponseItem(row)
+        }
+
+        const absolutePath = resolve(uploadsRoot, row.relative_path)
+
+        try {
+          const content = await readFile(absolutePath, 'utf8')
+          const { dateRangeStart, dateRangeEnd } = extractDateRange(row.domain as DataUploadInput['domain'], content)
+
+          if (dateRangeStart || dateRangeEnd) {
+            db.prepare(`
+              UPDATE data_upload
+              SET
+                date_range_start = ?,
+                date_range_end = ?
+              WHERE id = ?
+            `).run(dateRangeStart, dateRangeEnd, row.id)
+
+            return toResponseItem({
+              ...row,
+              date_range_start: dateRangeStart,
+              date_range_end: dateRangeEnd,
+            })
+          }
+        } catch {
+          return toResponseItem(row)
+        }
+
+        return toResponseItem(row)
+      })
+    )
+
+    return items
   }
 
   const saveFile = async ({ domain, fileName, content, dateRangeStart, dateRangeEnd }: DataUploadInput) => {

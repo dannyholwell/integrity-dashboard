@@ -16,6 +16,7 @@ const createTestApp = () => {
     const runImport = async () => ({
         rowCount: 2,
         insertedCount: 2,
+        skippedCount: 0,
         rejectedCount: 0,
     });
     return {
@@ -79,6 +80,7 @@ describe('buildApp', () => {
         expect(uploadPayload.item.fileName).toBe('tasks.csv');
         expect(uploadPayload.item.dataType).toBe('tasks');
         expect(uploadPayload.importResult.insertedCount).toBe(2);
+        expect(uploadPayload.importResult.skippedCount).toBe(0);
         expect(existsSync(join(uploadsRoot, 'tasks', uploadPayload.item.storedFileName))).toBe(true);
         expect(readFileSync(join(uploadsRoot, 'tasks', uploadPayload.item.storedFileName), 'utf8')).toContain('Write docs');
         const listResponse = await app.inject({
@@ -97,6 +99,32 @@ describe('buildApp', () => {
         });
         expect(deleteResponse.statusCode).toBe(200);
         expect(existsSync(join(uploadsRoot, 'tasks', uploadPayload.item.storedFileName))).toBe(false);
+        await app.close();
+    });
+    it('backfills uploaded file date ranges from stored finance CSV content', async () => {
+        const { app } = createTestApp();
+        const uploadResponse = await app.inject({
+            method: 'POST',
+            url: '/api/data-management/files',
+            payload: {
+                domain: 'finance',
+                fileName: 'finance.csv',
+                content: 'Date,Amount,Transaction Details\n12 Mar 26,-4.20,Coffee\n13 Mar 26,9.50,Refund\n',
+            },
+        });
+        expect(uploadResponse.statusCode).toBe(201);
+        const uploadPayload = uploadResponse.json();
+        expect(uploadPayload.item.dateRangeStart).toBeNull();
+        expect(uploadPayload.item.dateRangeEnd).toBeNull();
+        const listResponse = await app.inject({
+            method: 'GET',
+            url: '/api/data-management/files',
+        });
+        expect(listResponse.statusCode).toBe(200);
+        const listPayload = listResponse.json();
+        expect(listPayload.items).toHaveLength(1);
+        expect(listPayload.items[0].dateRangeStart).toBe('2026-03-12');
+        expect(listPayload.items[0].dateRangeEnd).toBe('2026-03-13');
         await app.close();
     });
     it('updates finance merchant and category through the local API', async () => {

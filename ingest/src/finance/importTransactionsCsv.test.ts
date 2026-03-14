@@ -40,14 +40,16 @@ describe('importTransactionsCsv', () => {
       [
         'Date,Amount,Account Number,,Transaction Type,Transaction Details,Balance,Category,Merchant Name,Processed On',
         '12 Mar 26,-28.67,168699150,,EFTPOS DEBIT,POS 12/03 UBER EATS,840.38,Restaurants & takeaway,Uber Eats,',
+        '12 Mar 26,-28.67,168699150,,EFTPOS DEBIT,POS 12/03 UBER EATS,840.38,Restaurants & takeaway,Uber Eats,',
         '11 Mar 26,-525.00,168699150,,TRANSFER DEBIT,DAVINA GUTTMAN H0660038311 Rent,1143.22,Transfers out,,11 Mar 26',
       ].join('\n')
     )
 
     const result = importTransactionsCsv(db, csvPath, 'bank-export')
 
-    expect(result.rowCount).toBe(2)
+    expect(result.rowCount).toBe(3)
     expect(result.insertedCount).toBe(2)
+    expect(result.skippedCount).toBe(1)
     expect(result.rejectedCount).toBe(0)
 
     const rows = db

@@ -13,7 +13,7 @@ export const registerDataManagementRoutes = async (app: FastifyInstance) => {
 
   app.get('/api/data-management/files', async (_request, reply) => {
     try {
-      return { items: service.listFiles() }
+      return { items: await service.listFiles() }
     } catch (error) {
       return reply.status(500).send({ error: getErrorMessage(error, 'Failed to load uploaded files') })
     }

@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
 import type { CsvRecord } from '../shared/csv.js'
 import { readCsvFile } from '../shared/csv.js'
 import type { AppDatabase } from '../shared/db.js'
+import { hashParts } from '../shared/hash.js'
 import { finishImportBatch, recordReject, startImportBatch } from '../shared/importBatch.js'
 import { runNormalization } from '../normalize/runNormalization.js'
 
@@ -16,13 +16,23 @@ const readField = (row: CsvRecord, keys: string[]) => {
   return undefined
 }
 
-const normalizeTask = (row: CsvRecord, index: number, sourceName: string) => {
+const buildFallbackTaskSourceRecordId = (title: string, category: string, sourcePath: string | null) => {
+  if (sourcePath) {
+    return `task-path-${hashParts([sourcePath]).slice(0, 16)}`
+  }
+
+  return `task-title-${hashParts([title, category]).slice(0, 16)}`
+}
+
+const normalizeTask = (row: CsvRecord, sourceName: string) => {
   const title = readField(row, ['title', 'name'])
   if (!title) {
     throw new Error('Missing title')
   }
 
-  const sourceRecordId = readField(row, ['source_record_id', 'source_id', 'id']) ?? `task-${index + 1}`
+  const category = readField(row, ['category']) ?? 'General'
+  const sourcePath = readField(row, ['source_path', 'path']) ?? null
+  const sourceRecordId = readField(row, ['source_record_id', 'source_id', 'id']) ?? buildFallbackTaskSourceRecordId(title, category, sourcePath)
   const effort = (readField(row, ['effort']) ?? 'medium').toLowerCase()
   const status = (readField(row, ['status']) ?? 'ready').toLowerCase()
 
@@ -35,15 +45,15 @@ const normalizeTask = (row: CsvRecord, index: number, sourceName: string) => {
   }
 
   return {
-    id: createHash('sha1').update(`${sourceName}:${sourceRecordId}`).digest('hex').slice(0, 24),
+    id: hashParts([sourceName, sourceRecordId]).slice(0, 24),
     sourceRecordId,
     title,
     summary: readField(row, ['summary', 'notes']) ?? '',
-    category: readField(row, ['category']) ?? 'General',
+    category,
     effort,
     status,
     dueDate: readField(row, ['due_date', 'due']),
-    sourcePath: readField(row, ['source_path', 'path']) ?? null,
+    sourcePath,
   }
 }
 
@@ -57,6 +67,7 @@ export const importTasksCsv = (db: AppDatabase, filePath: string, sourceName: st
 
   const rows = readCsvFile(absolutePath)
   let insertedCount = 0
+  let skippedCount = 0
   let rejectedCount = 0
 
   const insertRaw = db.prepare(`
@@ -96,6 +107,14 @@ export const importTasksCsv = (db: AppDatabase, filePath: string, sourceName: st
       due_date = excluded.due_date,
       source_path = excluded.source_path,
       updated_at = CURRENT_TIMESTAMP
+    WHERE
+      core_task.title IS NOT excluded.title
+      OR core_task.summary IS NOT excluded.summary
+      OR core_task.category IS NOT excluded.category
+      OR core_task.effort IS NOT excluded.effort
+      OR core_task.status IS NOT excluded.status
+      OR core_task.due_date IS NOT excluded.due_date
+      OR core_task.source_path IS NOT excluded.source_path
   `)
 
   const transaction = db.transaction(() => {
@@ -114,8 +133,8 @@ export const importTasksCsv = (db: AppDatabase, filePath: string, sourceName: st
       )
 
       try {
-        const task = normalizeTask(row, index, sourceName)
-        upsertCore.run(
+        const task = normalizeTask(row, sourceName)
+        const result = upsertCore.run(
           task.id,
           sourceName,
           task.sourceRecordId,
@@ -127,7 +146,11 @@ export const importTasksCsv = (db: AppDatabase, filePath: string, sourceName: st
           task.dueDate ?? null,
           task.sourcePath
         )
-        insertedCount += 1
+        if (result.changes > 0) {
+          insertedCount += 1
+        } else {
+          skippedCount += 1
+        }
       } catch (error) {
         rejectedCount += 1
         recordReject({
@@ -152,6 +175,7 @@ export const importTasksCsv = (db: AppDatabase, filePath: string, sourceName: st
       status: rejectedCount > 0 ? 'completed_with_rejects' : 'completed',
       rowCount: rows.length,
       insertedCount,
+      skippedCount,
       rejectedCount,
     })
   } catch (error) {
@@ -161,11 +185,12 @@ export const importTasksCsv = (db: AppDatabase, filePath: string, sourceName: st
       status: 'failed',
       rowCount: rows.length,
       insertedCount,
+      skippedCount,
       rejectedCount,
       notes: error instanceof Error ? error.message : 'Unknown import failure',
     })
     throw error
   }
 
-  return { rowCount: rows.length, insertedCount, rejectedCount }
+  return { rowCount: rows.length, insertedCount, skippedCount, rejectedCount }
 }

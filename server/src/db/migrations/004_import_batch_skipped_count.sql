@@ -1,0 +1,2 @@
+ALTER TABLE import_batch
+ADD COLUMN skipped_count INTEGER NOT NULL DEFAULT 0;

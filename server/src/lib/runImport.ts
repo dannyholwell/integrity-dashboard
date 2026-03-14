@@ -6,6 +6,7 @@ import type { DataUploadInput } from '../schemas/dataManagement.js'
 export type ImportResult = {
   rowCount: number
   insertedCount: number
+  skippedCount: number
   rejectedCount: number
 }
 

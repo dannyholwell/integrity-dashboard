@@ -30,11 +30,13 @@ describe('importTasksCsv', () => {
         writeFileSync(csvPath, [
             'id,title,category,effort,status,due_date,source_path,summary',
             'new-task-1,Test Task,Systems,high,ready,2026-03-12,Projects/Test.md,Valid row',
+            'new-task-1,Test Task,Systems,high,ready,2026-03-12,Projects/Test.md,Valid row',
             'broken-task,,Systems,unknown,ready,2026-03-13,Projects/Broken.md,Invalid row',
         ].join('\n'));
         const result = importTasksCsv(db, csvPath, 'test-source');
-        expect(result.rowCount).toBe(2);
+        expect(result.rowCount).toBe(3);
         expect(result.insertedCount).toBe(1);
+        expect(result.skippedCount).toBe(1);
         expect(result.rejectedCount).toBe(1);
         const importedTask = db
             .prepare(`

@@ -273,10 +273,10 @@ const formatCurrency = (value) => `$${Number(value ?? 0).toLocaleString('en-AU',
 const getTrendDirection = (value) => (value >= 0 ? 'up' : 'down')
 const formatDirectionLabel = (direction) => `${direction.charAt(0).toUpperCase()}${direction.slice(1)}`
 const DASHBOARD_ALLOCATION_MAX_CATEGORIES = 7
-const FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES = 21
+const FINANCE_PAGE_ALLOCATION_MAX_CATEGORIES = 20
 const FINANCE_PAGE_ALLOCATION_MIN_CATEGORIES = 6
 const FINANCE_ALLOCATION_LEGEND_ROW_GAP = 6
-const FINANCE_ALLOCATION_CHART_AND_GAP_HEIGHT = 272
+const FINANCE_ALLOCATION_CHART_AND_GAP_HEIGHT = 236
 const FINANCE_ALLOCATION_HEADER_GAP = 16
 const FINANCE_CATEGORY_COLORS = {
   Alcohol: '#ec4899',
@@ -835,6 +835,8 @@ const parseCsvLine = (line) => {
   return values
 }
 
+const normalizeCsvHeader = (value) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+
 const parseCsvRecords = (text) => {
   const lines = text
     .replace(/\r\n/g, '\n')
@@ -846,7 +848,7 @@ const parseCsvRecords = (text) => {
     return []
   }
 
-  const headers = parseCsvLine(lines[0]).map((header) => header.trim())
+  const headers = parseCsvLine(lines[0]).map((header) => normalizeCsvHeader(header))
 
   return lines.slice(1).map((line) => {
     const values = parseCsvLine(line)
@@ -857,22 +859,56 @@ const parseCsvRecords = (text) => {
   })
 }
 
+const MONTH_INDEX = {
+  jan: '01',
+  feb: '02',
+  mar: '03',
+  apr: '04',
+  may: '05',
+  jun: '06',
+  jul: '07',
+  aug: '08',
+  sep: '09',
+  oct: '10',
+  nov: '11',
+  dec: '12',
+}
+
 const normalizeDateValue = (value) => {
   if (!value) {
     return null
   }
 
-  const isoMatch = value.match(/\d{4}-\d{2}-\d{2}/)
+  const trimmed = value.trim()
+  const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/)
   if (isoMatch) {
-    return isoMatch[0]
+    return isoMatch[1]
   }
 
-  const parsed = new Date(value)
+  const dayMonthYearMatch = trimmed.match(/^(\d{1,2}) ([A-Za-z]{3}) (\d{2}|\d{4})$/)
+  if (dayMonthYearMatch) {
+    const [, dayValue, monthToken, yearValue] = dayMonthYearMatch
+    const month = MONTH_INDEX[monthToken.toLowerCase()]
+
+    if (!month) {
+      return null
+    }
+
+    const day = dayValue.padStart(2, '0')
+    const year = yearValue.length === 2 ? `20${yearValue}` : yearValue
+    return `${year}-${month}-${day}`
+  }
+
+  const parsed = new Date(trimmed)
   if (Number.isNaN(parsed.getTime())) {
     return null
   }
 
-  return parsed.toISOString().slice(0, 10)
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
 }
 
 const extractDateRange = (domain, content) => {
@@ -1000,7 +1036,7 @@ const AllocationChart = React.memo(function AllocationChart({
 }) {
   if (allocation.length === 0) {
     return (
-      <div className={`flex w-full items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 px-4 text-center text-sm text-slate-500 ${layout === 'stacked' ? 'h-64' : 'h-56'}`}>
+      <div className="flex h-56 w-full items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 px-4 text-center text-sm text-slate-500">
         No spend categories in the selected range.
       </div>
     )
@@ -1042,7 +1078,7 @@ const AllocationChart = React.memo(function AllocationChart({
   if (layout === 'stacked') {
     return (
       <div className="w-full">
-        <div className="flex h-64 w-full justify-center">
+        <div className="flex h-56 w-full justify-center">
           <div className="h-full w-full max-w-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -1074,7 +1110,7 @@ const AllocationChart = React.memo(function AllocationChart({
           </div>
         </div>
 
-        <div className="mt-4">{stackedLegend}</div>
+        <div className="mt-3">{stackedLegend}</div>
       </div>
     )
   }
@@ -2163,10 +2199,21 @@ const DataManagementPage = ({ uploads, uploadsStatus, onUploadFile, onDeleteFile
         ...dateRange,
       })
 
+      const { insertedCount, skippedCount, rejectedCount } = result.importResult
+      const feedbackParts = [
+        `${selectedFile.name} imported ${insertedCount} row${insertedCount === 1 ? '' : 's'} into ${selectedType}.`,
+      ]
+
+      if (skippedCount > 0) {
+        feedbackParts.push(`Skipped ${skippedCount} duplicate row${skippedCount === 1 ? '' : 's'}.`)
+      }
+
+      if (rejectedCount > 0) {
+        feedbackParts.push(`Rejected ${rejectedCount} invalid row${rejectedCount === 1 ? '' : 's'}.`)
+      }
+
       setSubmitStatus('success')
-      setFeedbackMessage(
-        `${selectedFile.name} imported ${result.importResult.insertedCount} row${result.importResult.insertedCount === 1 ? '' : 's'} into ${selectedType}.`
-      )
+      setFeedbackMessage(feedbackParts.join(' '))
       setSelectedFile(null)
       setFileResetKey((current) => current + 1)
     } catch (error) {

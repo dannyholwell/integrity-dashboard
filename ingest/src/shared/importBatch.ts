@@ -41,6 +41,7 @@ type FinishImportBatchInput = {
   status: 'completed' | 'completed_with_rejects' | 'failed'
   rowCount: number
   insertedCount: number
+  skippedCount: number
   rejectedCount: number
   notes?: string
 }
@@ -51,6 +52,7 @@ export const finishImportBatch = ({
   status,
   rowCount,
   insertedCount,
+  skippedCount,
   rejectedCount,
   notes,
 }: FinishImportBatchInput) => {
@@ -60,10 +62,11 @@ export const finishImportBatch = ({
       status = ?,
       row_count = ?,
       inserted_count = ?,
+      skipped_count = ?,
       rejected_count = ?,
       notes = ?
     WHERE id = ?
-  `).run(status, rowCount, insertedCount, rejectedCount, notes ?? null, batchId)
+  `).run(status, rowCount, insertedCount, skippedCount, rejectedCount, notes ?? null, batchId)
 }
 
 type RecordRejectInput = {

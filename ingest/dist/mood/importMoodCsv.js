@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { readCsvFile } from '../shared/csv.js';
+import { hashParts } from '../shared/hash.js';
 import { finishImportBatch, recordReject, startImportBatch } from '../shared/importBatch.js';
 import { runNormalization } from '../normalize/runNormalization.js';
 const readField = (row, keys) => {
@@ -12,6 +12,7 @@ const readField = (row, keys) => {
     return undefined;
 };
 const toNumberOrNull = (value) => (value === undefined ? null : Number(value));
+const buildFallbackMoodSourceRecordId = (entryAt) => `mood-${hashParts([entryAt]).slice(0, 16)}`;
 export const importMoodCsv = (db, filePath, sourceName) => {
     const { batchId, absolutePath } = startImportBatch({
         db,
@@ -21,6 +22,7 @@ export const importMoodCsv = (db, filePath, sourceName) => {
     });
     const rows = readCsvFile(absolutePath);
     let insertedCount = 0;
+    let skippedCount = 0;
     let rejectedCount = 0;
     const insertRaw = db.prepare(`
     INSERT INTO raw_mood_import (
@@ -58,6 +60,14 @@ export const importMoodCsv = (db, filePath, sourceName) => {
       tags_json = excluded.tags_json,
       note = excluded.note,
       updated_at = CURRENT_TIMESTAMP
+    WHERE
+      core_mood_entry.entry_at IS NOT excluded.entry_at
+      OR core_mood_entry.day IS NOT excluded.day
+      OR core_mood_entry.mood_score IS NOT excluded.mood_score
+      OR core_mood_entry.energy_score IS NOT excluded.energy_score
+      OR core_mood_entry.stress_score IS NOT excluded.stress_score
+      OR core_mood_entry.tags_json IS NOT excluded.tags_json
+      OR core_mood_entry.note IS NOT excluded.note
   `);
     const transaction = db.transaction(() => {
         rows.forEach((row, index) => {
@@ -68,14 +78,20 @@ export const importMoodCsv = (db, filePath, sourceName) => {
                 if (!entryAt || !moodScore) {
                     throw new Error('Missing mood entry timestamp or score');
                 }
-                const sourceRecordId = readField(row, ['source_record_id', 'id']) ?? `mood-${index + 1}`;
+                const sourceRecordId = readField(row, ['source_record_id', 'id']) ?? buildFallbackMoodSourceRecordId(entryAt);
                 const entryDate = entryAt.slice(0, 10);
-                const stableId = createHash('sha1').update(`${sourceName}:${sourceRecordId}`).digest('hex').slice(0, 24);
-                upsertCore.run(stableId, sourceName, sourceRecordId, entryAt, entryDate, Number(moodScore), toNumberOrNull(readField(row, ['energy_score', 'energy'])), toNumberOrNull(readField(row, ['stress_score', 'stress'])), JSON.stringify((readField(row, ['tags']) ?? '')
+                const stableId = hashParts([sourceName, sourceRecordId]).slice(0, 24);
+                const tagsJson = JSON.stringify((readField(row, ['tags']) ?? '')
                     .split('|')
                     .map((tag) => tag.trim())
-                    .filter(Boolean)), readField(row, ['note', 'notes']) ?? null);
-                insertedCount += 1;
+                    .filter(Boolean));
+                const result = upsertCore.run(stableId, sourceName, sourceRecordId, entryAt, entryDate, Number(moodScore), toNumberOrNull(readField(row, ['energy_score', 'energy'])), toNumberOrNull(readField(row, ['stress_score', 'stress'])), tagsJson, readField(row, ['note', 'notes']) ?? null);
+                if (result.changes > 0) {
+                    insertedCount += 1;
+                }
+                else {
+                    skippedCount += 1;
+                }
             }
             catch (error) {
                 rejectedCount += 1;
@@ -100,6 +116,7 @@ export const importMoodCsv = (db, filePath, sourceName) => {
             status: rejectedCount > 0 ? 'completed_with_rejects' : 'completed',
             rowCount: rows.length,
             insertedCount,
+            skippedCount,
             rejectedCount,
         });
     }
@@ -110,10 +127,11 @@ export const importMoodCsv = (db, filePath, sourceName) => {
             status: 'failed',
             rowCount: rows.length,
             insertedCount,
+            skippedCount,
             rejectedCount,
             notes: error instanceof Error ? error.message : 'Unknown import failure',
         });
         throw error;
     }
-    return { rowCount: rows.length, insertedCount, rejectedCount };
+    return { rowCount: rows.length, insertedCount, skippedCount, rejectedCount };
 };
